@@ -31,7 +31,7 @@ VIDEO_REMOTE_PATH = "/sdcard/Eyesatop-Records/Screen-Videos"
 DEVICES_REGISTRY: list[AndroidDevice] = [
     AndroidDevice(
         name="Racer Controller",
-        serial="4LFCN380071TMZ",
+        serial="4LFCN380071TM6",
         remote_log_path="/sdcard/Records",
         file_prefix="RACER",
         apk_name_pattern="app-dynamic-msdk5-debug*.apk",
@@ -48,6 +48,14 @@ DEVICES_REGISTRY: list[AndroidDevice] = [
     AndroidDevice(
         name="RC PAD Home",
         serial="f7b2909c",
+        remote_log_path="/sdcard/Records",
+        file_prefix="ISR",
+        apk_name_pattern="flytogether-autel-msdk-25-debug*.apk",
+        package_name="io.eyesatop.apps.flytogetherautelmsdk25",
+    ),
+    AndroidDevice(
+        name="RC-PAD",
+        serial="d6d6d38e",
         remote_log_path="/sdcard/Records",
         file_prefix="ISR",
         apk_name_pattern="flytogether-autel-msdk-25-debug*.apk",
