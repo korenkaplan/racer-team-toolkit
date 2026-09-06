@@ -17,8 +17,6 @@ def main() -> None:
     if not check_server_status():
         print("[-] No connected server found. Please ensure the server is running and connected.")
         # wait for user input before returning to main menu
-        input("Press Enter to return to the main menu...")
-        return
 
     if user_choice == JAR_MANAGEMENT_CHOICES[0]:  # Upload JAR
         # prompt user to select a folder from downloads
@@ -34,7 +32,7 @@ def main() -> None:
         # else print a message that no JAR file was found in the selected folder
 
         # wait for user input before returning to main menu
-        return
+        pass
 
     elif user_choice == JAR_MANAGEMENT_CHOICES[1]:  # Restart JAR
         # restart the JAR file on the server
@@ -44,6 +42,6 @@ def main() -> None:
         # else print a message that the restart failed
 
         # wait for user input before returning to main menu
-        return
+        pass
     elif user_choice == JAR_MANAGEMENT_CHOICES[2]:  # Return to Main Menu
-        return
+        pass

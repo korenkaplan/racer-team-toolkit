@@ -37,11 +37,11 @@ def main() -> None:
     ]
 
     if not connected_devices:
-        print_error("No connected supported Android devices found.")
+        print_error("No Devices Are Connected. Please connect a device and try again.")
+        pause("Press Enter to return to the main menu...")
         return
 
     folders = get_folders_in_downloads()
-
     while True:
         folder = choose_folder(folders)
         plan = build_installation_plan(folder, connected_devices)
@@ -55,7 +55,6 @@ def main() -> None:
 
         results = [run_installation(item, console) for item in plan]
         print_installation_results(results)
-        pause("Press Enter to return...")
         return
 
 

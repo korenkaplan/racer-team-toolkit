@@ -14,7 +14,6 @@ def main() -> None:
         if choice == "REFF & Video Extractor":
             # run extractor
             run_reff_and_videos_extractor_main()
-            break
 
         elif choice == "APK Installer":
             # run APK installer

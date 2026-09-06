@@ -6,7 +6,7 @@ from racer_team_toolkit.reff_extractor.functions import (
     extract_reff,
     extract_reff_and_videos,
 )
-from racer_team_toolkit.ui.functions import print_header, select_menu
+from racer_team_toolkit.ui.functions import pause, print_header, select_menu
 
 
 def main() -> None:
@@ -22,3 +22,5 @@ def main() -> None:
     elif user_choice == REFF_EXTRACTOR_CHOICES[2]:
         print_header(REFF_EXTRACTOR_CHOICES[2])
         adjust_time_for_reff()
+
+    pause("Press Enter to return to the main menu...")

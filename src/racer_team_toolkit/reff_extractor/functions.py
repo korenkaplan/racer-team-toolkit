@@ -50,7 +50,7 @@ def run_extraction(*, include_videos: bool) -> None:
     connected_serials = get_connected_serials()
 
     if not connected_serials:
-        print("[-] No connected ADB devices found.")
+        print("[-] No Devices Are Connected. Please connect a device and try again.")
         return
 
     connected_devices = get_connected_devices(connected_serials)

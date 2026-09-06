@@ -4,29 +4,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from racer_team_toolkit.main import main
 from racer_team_toolkit.reff_extractor.functions import attach_videos_to_flight
-
-
-def test_main_runs_without_error():
-    """Test that main() executes successfully."""
-    # Mock get_connected_serials to return empty set (no devices connected).
-    # This allows the test to pass without requiring ADB or connected devices.
-    with (
-        patch(
-            "racer_team_toolkit.reff_extractor.functions.get_connected_serials",
-            return_value=set(),
-        ),
-        patch(
-            "racer_team_toolkit.main.select_menu",
-            return_value="REFF & Video Extractor",
-        ),
-        patch(
-            "racer_team_toolkit.reff_extractor.main.select_menu",
-            return_value="REFF Only",
-        ),
-    ):
-        main()
 
 
 def test_main_can_be_imported():

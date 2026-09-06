@@ -33,9 +33,6 @@ def get_connected_serials() -> set[str]:
             if match:
                 connected_serials.add(match.group(1))
 
-        if not connected_serials:
-            print("[!] No connected devices found.")
-
         return connected_serials
 
     except Exception as error:
