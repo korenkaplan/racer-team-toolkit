@@ -347,7 +347,7 @@ def select_flight_files(
 
 
 def collect_flight_candidates(
-    files: list[dict], base_index: int, used_indexes: set[int]
+    files: list[dict], base_index: int, used_indexes: set[int], s
 ) -> dict[str, list[dict]]:
     """Collect unused files close enough to the base file for a flight."""
 
@@ -360,12 +360,28 @@ def collect_flight_candidates(
 
         candidate = files[index]
 
+        # Files are sorted by time, so once we're outside the allowed
+        # flight window there is no reason to continue checking.
         if candidate["mtime"] - base_file["mtime"] > MAX_FLIGHT_TIME_DIFF:
             break
 
+        # A flight can contain only one REFF file from each device type.
+        # The device type is reliable here because our extraction code
+        # adds the configured device prefix before flight grouping.
+        if candidate["type"] == base_file["type"]:
+            continue
+
         candidate["time_diff"] = abs(candidate["mtime"] - base_file["mtime"])
-        candidate["same_minute"] = same_clock_minute(candidate["mtime"], base_file["mtime"])
-        candidates_by_type.setdefault(candidate["type"], []).append(candidate)
+
+        candidate["same_minute"] = same_clock_minute(
+            candidate["mtime"],
+            base_file["mtime"],
+        )
+
+        candidates_by_type.setdefault(
+            candidate["type"],
+            [],
+        ).append(candidate)
 
     return candidates_by_type
 

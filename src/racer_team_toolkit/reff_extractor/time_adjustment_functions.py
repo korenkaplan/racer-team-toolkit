@@ -1,11 +1,16 @@
 from datetime import datetime
+from pathlib import PurePosixPath
 
+import questionary
 from rich.table import Table
 
 from racer_team_toolkit.adb import get_connected_serials, run_adb_command
 from racer_team_toolkit.config import MAX_DEVICE_TIME_DIFF_SECONDS, VIDEO_REMOTE_PATH, AndroidDevice
 from racer_team_toolkit.reff_extractor.functions import get_connected_devices
-from racer_team_toolkit.reff_extractor.time_adjustment_dataclasses import DeviceTimeInfo
+from racer_team_toolkit.reff_extractor.time_adjustment_dataclasses import (
+    DeviceTimeInfo,
+    FileTimeCorrection,
+)
 from racer_team_toolkit.ui.functions import console
 
 
@@ -207,59 +212,6 @@ def remote_file_matches_wrong_date(
     return file_datetime.date() == wrong_datetime.date()
 
 
-def adjust_time_for_reff() -> None:
-    """Check device clocks and dry-run file detection for incorrect devices."""
-
-    pc_datetime = get_pc_datetime()
-    time_info = get_connected_device_time_info(pc_datetime)
-
-    if not time_info:
-        console.print("[yellow]No connected supported devices found.[/yellow]")
-        return
-
-    print_device_time_table(pc_datetime, time_info)
-
-    incorrect_devices = get_devices_needing_time_fix(time_info)
-
-    if not incorrect_devices:
-        console.print("\n[green]✓ All connected device clocks are correct.[/green]")
-        return
-
-    console.print(f"\n[yellow]{len(incorrect_devices)} device(s) need time adjustment.[/yellow]")
-
-    # Dry-run test:
-    # Find files whose modification date matches the device's incorrect date.
-    for device_info in incorrect_devices:
-        device = device_info.device
-        wrong_date = device_info.device_datetime.date()
-
-        console.rule(f"[bold]{device.name}[/bold]")
-
-        console.print(f"Wrong device date: [yellow]{wrong_date.strftime('%d-%m-%Y')}[/yellow]")
-
-        reff_files = get_remote_files_from_wrong_date(
-            device_info,
-            device.remote_log_path,
-        )
-
-        video_files = get_remote_files_from_wrong_date(
-            device_info,
-            VIDEO_REMOTE_PATH,
-        )
-
-        console.print(f"\n[bold]REFF files found: {len(reff_files)}[/bold]")
-
-        for file_path in reff_files:
-            console.print(f"  {file_path}")
-
-        console.print(f"\n[bold]Screen videos found: {len(video_files)}[/bold]")
-
-        for file_path in video_files:
-            console.print(f"  {file_path}")
-
-        console.print()
-
-
 def get_remote_files_from_wrong_date(
     device_info: DeviceTimeInfo,
     remote_path: str,
@@ -289,3 +241,285 @@ def get_remote_files_from_wrong_date(
             matching_files.append(file_path)
 
     return matching_files
+
+
+def set_remote_file_timestamp(
+    device: AndroidDevice,
+    file_path: str,
+    timestamp: int,
+) -> bool:
+    """Set a remote Android file modification time using Unix seconds."""
+
+    result = run_adb_command(
+        [
+            "adb",
+            "-s",
+            device.serial,
+            "shell",
+            "touch",
+            "-m",
+            "-d",
+            f"@{timestamp}",
+            file_path,
+        ]
+    )
+
+    return result.returncode == 0
+
+
+def apply_file_time_corrections(
+    device: AndroidDevice,
+    corrections: list[FileTimeCorrection],
+) -> int:
+    """Apply approved timestamp corrections and return success count."""
+
+    corrected_count = 0
+
+    for correction in corrections:
+        success = set_remote_file_timestamp(
+            device,
+            correction.file_path,
+            correction.corrected_timestamp,
+        )
+
+        if success:
+            corrected_count += 1
+
+    return corrected_count
+
+
+def adjust_remote_file_timestamp(
+    device_info: DeviceTimeInfo,
+    file_path: str,
+) -> bool:
+    """Correct one remote file timestamp using the device clock difference."""
+
+    original_timestamp = get_remote_file_timestamp(
+        device_info.device,
+        file_path,
+    )
+
+    if original_timestamp is None:
+        return False
+
+    corrected_timestamp = calculate_corrected_timestamp(
+        original_timestamp,
+        device_info.difference_seconds,
+    )
+
+    return set_remote_file_timestamp(
+        device_info.device,
+        file_path,
+        corrected_timestamp,
+    )
+
+
+def adjust_remote_files(
+    device_info: DeviceTimeInfo,
+    file_paths: list[str],
+) -> int:
+    """Correct timestamps for a collection of remote files."""
+
+    adjusted_count = 0
+
+    for file_path in file_paths:
+        if adjust_remote_file_timestamp(device_info, file_path):
+            adjusted_count += 1
+
+    return adjusted_count
+
+
+def build_file_time_corrections(
+    device_info: DeviceTimeInfo,
+    file_paths: list[str],
+) -> list[FileTimeCorrection]:
+    """Build timestamp corrections without modifying any files."""
+
+    corrections = []
+
+    for file_path in file_paths:
+        current_timestamp = get_remote_file_timestamp(
+            device_info.device,
+            file_path,
+        )
+
+        if current_timestamp is None:
+            continue
+
+        corrected_timestamp = calculate_corrected_timestamp(
+            current_timestamp,
+            device_info.difference_seconds,
+        )
+
+        corrections.append(
+            FileTimeCorrection(
+                file_path=file_path,
+                current_timestamp=current_timestamp,
+                corrected_timestamp=corrected_timestamp,
+            )
+        )
+
+    return corrections
+
+
+def print_file_time_correction_table(
+    device_info: DeviceTimeInfo,
+    corrections: list[FileTimeCorrection],
+) -> None:
+    """Display the planned file timestamp corrections."""
+
+    table = Table(
+        title=f"{device_info.device.name} - Files Time Correction",
+        show_lines=True,
+    )
+
+    table.add_column("Name")
+    table.add_column("Current Date")
+    table.add_column("After Correction")
+
+    for correction in corrections:
+        table.add_row(
+            PurePosixPath(correction.file_path).name,
+            datetime.fromtimestamp(correction.current_timestamp).strftime("%d-%m-%Y %H:%M:%S"),
+            datetime.fromtimestamp(correction.corrected_timestamp).strftime("%d-%m-%Y %H:%M:%S"),
+        )
+
+    console.print()
+    console.print(table)
+
+
+def calculate_corrected_timestamp(
+    file_timestamp: int,
+    difference_seconds: float,
+) -> int:
+    """Return the corrected Unix timestamp for a file."""
+
+    return int(file_timestamp + difference_seconds)
+
+
+def ask_apply_time_corrections() -> bool:
+    """Ask the user whether to apply the displayed timestamp corrections."""
+
+    choice = questionary.select(
+        "Apply these timestamp corrections?",
+        choices=[
+            "Yes",
+            "Cancel",
+        ],
+    ).ask()
+
+    return choice == "Yes"
+
+
+def adjust_time_for_reff() -> None:
+    """Correct file timestamps created while Android clocks were incorrect."""
+
+    pc_datetime = get_pc_datetime()
+    time_info = get_connected_device_time_info(pc_datetime)
+
+    if not time_info:
+        console.print("[yellow]No connected supported devices found.[/yellow]")
+        return
+
+    print_device_time_table(
+        pc_datetime,
+        time_info,
+    )
+
+    incorrect_devices = get_devices_needing_time_fix(time_info)
+
+    if not incorrect_devices:
+        console.print("\n[green]✓ All connected device clocks are correct.[/green]")
+        return
+
+    console.print(f"\n[yellow]{len(incorrect_devices)} device(s) need time adjustment.[/yellow]")
+
+    correction_plans = []
+
+    for device_info in incorrect_devices:
+        device = device_info.device
+
+        reff_files = get_remote_files_from_wrong_date(
+            device_info,
+            device.remote_log_path,
+        )
+
+        video_files = get_remote_files_from_wrong_date(
+            device_info,
+            VIDEO_REMOTE_PATH,
+        )
+
+        files_to_adjust = reff_files + video_files
+
+        console.rule(f"[bold]{device.name}[/bold]")
+
+        console.print(
+            "Wrong device date: "
+            f"[yellow]"
+            f"{device_info.device_datetime.strftime('%d-%m-%Y')}"
+            f"[/yellow]"
+        )
+
+        console.print(
+            "Time correction: "
+            f"[yellow]"
+            f"{format_time_difference(device_info.difference_seconds)}"
+            f"[/yellow]"
+        )
+
+        console.print(f"REFF files found: [cyan]{len(reff_files)}[/cyan]")
+
+        console.print(f"Screen videos found: [cyan]{len(video_files)}[/cyan]")
+
+        if not files_to_adjust:
+            console.print("\n[yellow]No files found on the incorrect device date.[/yellow]")
+            continue
+
+        corrections = build_file_time_corrections(
+            device_info,
+            files_to_adjust,
+        )
+
+        if not corrections:
+            console.print("\n[yellow]Could not build any file corrections.[/yellow]")
+            continue
+
+        print_file_time_correction_table(
+            device_info,
+            corrections,
+        )
+
+        correction_plans.append(
+            (
+                device_info,
+                corrections,
+                len(reff_files),
+                len(video_files),
+            )
+        )
+
+    if not correction_plans:
+        return
+
+    if not ask_apply_time_corrections():
+        console.print("\n[yellow]No files were changed.[/yellow]")
+        return
+
+    for device_info, corrections, reff_count, video_count in correction_plans:
+        corrected_count = apply_file_time_corrections(
+            device_info.device,
+            corrections,
+        )
+
+        console.print()
+        console.print(
+            f"[green]✓ {device_info.device.name}: {corrected_count} file(s) corrected.[/green]"
+        )
+
+        console.print(f"  REFF files: {reff_count}")
+        console.print(f"  Screen videos: {video_count}")
+
+    console.print()
+    console.print("[bold yellow]⚠ The Android device clock is still incorrect.[/bold yellow]")
+
+    console.print("Please manually correct the date and time on the affected device(s).")

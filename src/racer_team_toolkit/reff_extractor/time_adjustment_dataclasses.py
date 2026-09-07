@@ -23,3 +23,12 @@ class TimeAdjustmentResult:
     videos_adjusted: int = 0
     success: bool = True
     error: str = ""
+
+
+@dataclass
+class FileTimeCorrection:
+    """One remote file timestamp correction."""
+
+    file_path: str
+    current_timestamp: int
+    corrected_timestamp: int
