@@ -2,10 +2,10 @@
 
 from racer_team_toolkit.config import REFF_EXTRACTOR_CHOICES, REFF_EXTRACTOR_HEADER
 from racer_team_toolkit.reff_extractor.functions import (
-    adjust_time_for_reff,
     extract_reff,
     extract_reff_and_videos,
 )
+from racer_team_toolkit.reff_extractor.time_adjustment_functions import adjust_time_for_reff
 from racer_team_toolkit.ui.functions import pause, print_header, select_menu
 
 
