@@ -1,6 +1,9 @@
 """Reusable REFF and screen-video extraction functions."""
 
 import os
+from racer_team_toolkit.reff_extractor.time_adjustment_functions import (
+    validate_device_times_before_extraction,
+)
 import shutil
 from datetime import datetime
 from typing import Optional
@@ -47,23 +50,54 @@ def run_extraction(*, include_videos: bool) -> None:
     """Run the shared extraction workflow for one menu option."""
 
     create_output_directory()
+
     connected_serials = get_connected_serials()
 
     if not connected_serials:
-        print("[-] No Devices Are Connected. Please connect a device and try again.")
+        print(
+            "[-] No Devices Are Connected. "
+            "Please connect a device and try again."
+        )
         return
 
-    connected_devices = get_connected_devices(connected_serials)
-    print_connected_devices(connected_devices)
-    # Limit report columns to devices that participated in this extraction.
-    connected_device_types = tuple(device.file_prefix for device in connected_devices)
+    connected_devices = get_connected_devices(
+        connected_serials
+    )
+
+    # Validate device clocks before importing anything.
+    devices_to_process = validate_device_times_before_extraction(
+        connected_devices
+    )
+
+    if not devices_to_process:
+        console.print(
+            "\n[yellow]"
+            "No devices with valid file timestamps remain. "
+            "Extraction cancelled."
+            "[/yellow]"
+        )
+        return
+
+    print_connected_devices(
+        devices_to_process
+    )
+
+    connected_device_types = tuple(
+        device.file_prefix
+        for device in devices_to_process
+    )
+
     processed_any = False
     copied_reff_files = 0
     copied_videos = 0
     flights = []
 
-    for device in connected_devices:
-        result = process_device(device, include_videos=include_videos)
+    for device in devices_to_process:
+        result = process_device(
+            device,
+            include_videos=include_videos,
+        )
+
         copied_reff_files += result["reff_files"]
         copied_videos += result["videos"]
         processed_any = True
@@ -79,7 +113,6 @@ def run_extraction(*, include_videos: bool) -> None:
         include_videos,
         connected_device_types,
     )
-
 
 def get_connected_devices(connected_serials: set[str]) -> list[AndroidDevice]:
     """Return registered devices that are currently connected."""

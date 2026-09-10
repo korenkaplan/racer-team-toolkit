@@ -3,10 +3,8 @@ from pathlib import PurePosixPath
 
 import questionary
 from rich.table import Table
-
-from racer_team_toolkit.adb import get_connected_serials, run_adb_command
+from racer_team_toolkit.adb import run_adb_command
 from racer_team_toolkit.config import MAX_DEVICE_TIME_DIFF_SECONDS, VIDEO_REMOTE_PATH, AndroidDevice
-from racer_team_toolkit.reff_extractor.functions import get_connected_devices
 from racer_team_toolkit.reff_extractor.time_adjustment_dataclasses import (
     DeviceTimeInfo,
     FileTimeCorrection,
@@ -86,23 +84,23 @@ def get_devices_needing_time_fix(
 
 
 def get_connected_device_time_info(
+    devices: list[AndroidDevice],
     pc_datetime: datetime,
 ) -> list[DeviceTimeInfo]:
-    """Return clock information for all connected registered devices."""
-
-    connected_serials = get_connected_serials()
-    connected_devices = get_connected_devices(connected_serials)
+    """Return clock information for the supplied connected devices."""
 
     time_info = []
 
-    for device in connected_devices:
-        device_info = get_device_time_info(device, pc_datetime)
+    for device in devices:
+        device_info = get_device_time_info(
+            device,
+            pc_datetime,
+        )
 
         if device_info is not None:
             time_info.append(device_info)
 
     return time_info
-
 
 def format_time_difference(difference_seconds: float) -> str:
     """Return a readable signed time difference."""
@@ -523,3 +521,195 @@ def adjust_time_for_reff() -> None:
     console.print("[bold yellow]⚠ The Android device clock is still incorrect.[/bold yellow]")
 
     console.print("Please manually correct the date and time on the affected device(s).")
+
+def build_device_file_corrections(
+    device_info: DeviceTimeInfo,
+) -> tuple[list[FileTimeCorrection], int, int]:
+    """Build REFF and video corrections for one incorrect device."""
+
+    device = device_info.device
+
+    reff_files = get_remote_files_from_wrong_date(
+        device_info,
+        device.remote_log_path,
+    )
+
+    video_files = get_remote_files_from_wrong_date(
+        device_info,
+        VIDEO_REMOTE_PATH,
+    )
+
+    files_to_adjust = reff_files + video_files
+
+    corrections = build_file_time_corrections(
+        device_info,
+        files_to_adjust,
+    )
+
+    return corrections, len(reff_files), len(video_files)
+
+
+def print_device_correction_plan(
+    device_info: DeviceTimeInfo,
+    corrections: list[FileTimeCorrection],
+    reff_count: int,
+    video_count: int,
+) -> None:
+    """Display files that will be corrected for one device."""
+
+    console.rule(f"[bold]{device_info.device.name}[/bold]")
+
+    console.print(
+        "Wrong device date: "
+        f"[yellow]{device_info.device_datetime.strftime('%d-%m-%Y')}[/yellow]"
+    )
+
+    console.print(
+        "Time correction: "
+        f"[yellow]{format_time_difference(device_info.difference_seconds)}[/yellow]"
+    )
+
+    console.print(
+        f"REFF files found: [cyan]{reff_count}[/cyan]"
+    )
+
+    console.print(
+        f"Screen videos found: [cyan]{video_count}[/cyan]"
+    )
+
+    if corrections:
+        print_file_time_correction_table(
+            device_info,
+            corrections,
+        )
+
+def validate_device_times_before_extraction(
+    devices: list[AndroidDevice],
+) -> list[AndroidDevice]:
+    """Return devices that may continue to extraction.
+
+    Incorrect devices are corrected when approved by the user.
+    If correction is declined or fails, only those devices are skipped.
+    """
+
+    pc_datetime = get_pc_datetime()
+
+    time_info = get_connected_device_time_info(
+        devices,
+        pc_datetime,
+    )
+
+    incorrect_devices = get_devices_needing_time_fix(
+        time_info,
+    )
+
+    if not incorrect_devices:
+        return devices
+
+    print_device_time_table(
+        pc_datetime,
+        time_info,
+    )
+
+    console.print(
+        f"\n[yellow]{len(incorrect_devices)} "
+        "device(s) have an incorrect clock.[/yellow]"
+    )
+
+    if not ask_apply_time_corrections():
+        return get_devices_with_correct_time(
+            devices,
+            incorrect_devices,
+        )
+
+    corrected_devices = correct_files_for_incorrect_devices(
+        incorrect_devices,
+    )
+
+    correct_devices = get_devices_with_correct_time(
+        devices,
+        incorrect_devices,
+    )
+
+    console.print()
+    console.print(
+        "[bold yellow]"
+        "⚠ The Android clocks are still incorrect."
+        "[/bold yellow]"
+    )
+    console.print(
+        "Please manually correct the date and time "
+        "on the affected device(s)."
+    )
+
+    return correct_devices + corrected_devices
+
+def get_devices_with_correct_time(
+    devices: list[AndroidDevice],
+    incorrect_devices: list[DeviceTimeInfo],
+) -> list[AndroidDevice]:
+    """Return connected devices whose clocks were already correct."""
+
+    incorrect_serials = {
+        device_info.device.serial
+        for device_info in incorrect_devices
+    }
+
+    return [
+        device
+        for device in devices
+        if device.serial not in incorrect_serials
+    ]
+
+def correct_files_for_incorrect_devices(
+    incorrect_devices: list[DeviceTimeInfo],
+) -> list[AndroidDevice]:
+    """Correct files and return devices whose corrections fully succeeded."""
+
+    corrected_devices = []
+
+    for device_info in incorrect_devices:
+        corrections, reff_count, video_count = build_device_file_corrections(
+            device_info
+        )
+
+        print_device_correction_plan(
+            device_info,
+            corrections,
+            reff_count,
+            video_count,
+        )
+
+        if not corrections:
+            console.print(
+                "[yellow]No affected files found for this device.[/yellow]"
+            )
+            corrected_devices.append(device_info.device)
+            continue
+
+        corrected_count = apply_file_time_corrections(
+            device_info.device,
+            corrections,
+        )
+
+        if corrected_count == len(corrections):
+            console.print(
+                f"[green]✓ {device_info.device.name}: "
+                f"{corrected_count} file(s) corrected.[/green]"
+            )
+
+            corrected_devices.append(
+                device_info.device
+            )
+        else:
+            console.print(
+                f"[red]✗ {device_info.device.name}: "
+                f"{corrected_count} of {len(corrections)} "
+                "file(s) corrected.[/red]"
+            )
+
+            console.print(
+                "[yellow]Device will be skipped during extraction.[/yellow]"
+            )
+
+    return corrected_devices
