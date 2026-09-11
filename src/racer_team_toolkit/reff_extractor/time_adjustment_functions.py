@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import PurePosixPath
 
 import questionary
@@ -548,7 +548,6 @@ def build_device_file_corrections(
 
     return corrections, len(reff_files), len(video_files)
 
-
 def print_device_correction_plan(
     device_info: DeviceTimeInfo,
     corrections: list[FileTimeCorrection],
@@ -713,3 +712,34 @@ def correct_files_for_incorrect_devices(
             )
 
     return corrected_devices
+
+def timestamp_is_today(
+    timestamp: int,
+    today: date,
+) -> bool:
+    """Return whether a Unix timestamp belongs to today's local date."""
+
+    return datetime.fromtimestamp(timestamp).date() == today
+
+def get_remote_files_from_today(
+    device: AndroidDevice,
+    remote_path: str,
+) -> list[str]:
+    """Return remote files whose modification date is today."""
+
+    today = datetime.now().date()
+    matching_files = []
+
+    for file_path in get_remote_files(device, remote_path):
+        timestamp = get_remote_file_timestamp(
+            device,
+            file_path,
+        )
+
+        if timestamp is None:
+            continue
+
+        if timestamp_is_today(timestamp, today):
+            matching_files.append(file_path)
+
+    return matching_files

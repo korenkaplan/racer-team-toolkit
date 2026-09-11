@@ -2,12 +2,12 @@
 
 import os
 from racer_team_toolkit.reff_extractor.time_adjustment_functions import (
+    get_remote_files_from_today,
     validate_device_times_before_extraction,
 )
 import shutil
 from datetime import datetime
 from typing import Optional
-
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from racer_team_toolkit.adb import get_connected_serials, run_adb_command
@@ -38,12 +38,6 @@ def extract_reff_and_videos() -> None:
     """Extract REFF files and screen videos from connected devices."""
 
     run_extraction(include_videos=True)
-
-
-def adjust_time_for_reff() -> None:
-    """Report that REFF timestamp adjustment is not implemented yet."""
-
-    print("[i] REFF timestamp adjustment is not implemented yet.")
 
 
 def run_extraction(*, include_videos: bool) -> None:
@@ -490,41 +484,23 @@ def process_device(device: AndroidDevice, *, include_videos: bool = True) -> dic
     return {"reff_files": reff_files, "videos": videos}
 
 
-def pull_reff_files(device: AndroidDevice, progress: Progress, task_id: int) -> int:
-    """Pull and flatten the Records directory from one device."""
 
-    pull_command = build_pull_command(device.serial, device.remote_log_path)
-    result = run_adb_command(pull_command)
+def build_pull_command(
+    serial: str,
+    remote_file: str,
+    local_directory: str,
+) -> list[str]:
+    """Build an ADB command for pulling one remote file."""
 
-    if result.returncode != 0:
-        return 0
-
-    records_dir = os.path.join(LOCAL_DUMP_DIR, "Records")
-
-    if not os.path.isdir(records_dir):
-        return 0
-
-    total_files = count_files(records_dir)
-    # ADB creates Records only after the pull, so calculate its total here.
-    progress.update(
-        task_id,
-        total=total_files,
-        description=f"REFF: {get_transfer_verb()} 0 of {total_files} files",
-    )
-    copied_count = move_record_files(records_dir, device, progress, task_id)
-    remove_empty_directories(records_dir)
-
-    if PROJECT_STATUS == "production" and copied_count == total_files:
-        clear_remote_directory(device.serial, device.remote_log_path)
-
-    return copied_count
-
-
-def build_pull_command(serial: str, remote_path: str) -> list[str]:
-    """Build an ADB pull command for a device path."""
-
-    return ["adb", "-s", serial, "pull", "-a", remote_path, LOCAL_DUMP_DIR]
-
+    return [
+        "adb",
+        "-s",
+        serial,
+        "pull",
+        "-a",
+        remote_file,
+        local_directory,
+    ]
 
 def move_record_files(
     records_dir: str, device: AndroidDevice, progress: Progress, task_id: int
@@ -575,34 +551,59 @@ def remove_empty_directories(directory: str) -> None:
             pass
 
 
-def pull_videos(device: AndroidDevice, progress: Progress, task_id: int) -> int:
-    """Pull screen recordings and flatten them into the dump directory."""
+def pull_videos(
+    device: AndroidDevice,
+    progress: Progress,
+    task_id: int,
+) -> int:
+    """Pull only today's screen recordings from one Android device."""
 
-    pull_command = build_pull_command(device.serial, VIDEO_REMOTE_PATH)
-    result = run_adb_command(pull_command)
+    video_files = get_remote_files_from_today(
+        device,
+        VIDEO_REMOTE_PATH,
+    )
 
-    if result.returncode != 0:
-        return 0
+    total_video_files = len(video_files)
 
-    videos_dir = os.path.join(LOCAL_DUMP_DIR, "Screen-Videos")
-
-    if not os.path.isdir(videos_dir):
-        return 0
-
-    total_video_files = count_files(videos_dir)
     progress.update(
         task_id,
         total=total_video_files,
+        completed=0,
         description=f"Videos: {get_transfer_verb()} 0 of {total_video_files} files",
     )
-    video_count = move_video_files(videos_dir, device, progress, task_id)
-    remove_empty_directories(videos_dir)
 
-    if PROJECT_STATUS == "production" and video_count == total_video_files:
-        clear_remote_directory(device.serial, VIDEO_REMOTE_PATH)
+    if not video_files:
+        return 0
+
+    videos_dir = os.path.join(
+        LOCAL_DUMP_DIR,
+        "Screen-Videos",
+    )
+
+    os.makedirs(
+        videos_dir,
+        exist_ok=True,
+    )
+
+    for remote_file in video_files:
+        pull_remote_file(
+            device,
+            remote_file,
+            videos_dir,
+        )
+
+    video_count = move_video_files(
+        videos_dir,
+        device,
+        progress,
+        task_id,
+    )
+
+    remove_empty_directories(
+        videos_dir
+    )
 
     return video_count
-
 
 def move_video_files(
     videos_dir: str, device: AndroidDevice, progress: Progress, task_id: int
@@ -690,3 +691,75 @@ def clear_remote_directory(serial: str, remote_path: str) -> bool:
         return False
 
     return True
+
+def pull_remote_file(
+    device: AndroidDevice,
+    remote_file: str,
+    local_directory: str,
+) -> bool:
+    """Pull one remote Android file while preserving its timestamp."""
+
+    command = build_pull_command(
+        device.serial,
+        remote_file,
+        local_directory,
+    )
+
+    result = run_adb_command(command)
+
+    return result.returncode == 0
+
+
+def pull_reff_files(
+    device: AndroidDevice,
+    progress: Progress,
+    task_id: int,
+) -> int:
+    """Pull only today's REFF files from one Android device."""
+
+    reff_files = get_remote_files_from_today(
+        device,
+        device.remote_log_path,
+    )
+
+    total_reff_files = len(reff_files)
+
+    progress.update(
+        task_id,
+        total=total_reff_files,
+        completed=0,
+        description=f"REFF: {get_transfer_verb()} 0 of {total_reff_files} files",
+    )
+
+    if not reff_files:
+        return 0
+
+    records_dir = os.path.join(
+        LOCAL_DUMP_DIR,
+        "Records",
+    )
+
+    os.makedirs(
+        records_dir,
+        exist_ok=True,
+    )
+
+    for remote_file in reff_files:
+        pull_remote_file(
+            device,
+            remote_file,
+            records_dir,
+        )
+
+    copied_count = move_record_files(
+        records_dir,
+        device,
+        progress,
+        task_id,
+    )
+
+    remove_empty_directories(
+        records_dir
+    )
+
+    return copied_count
