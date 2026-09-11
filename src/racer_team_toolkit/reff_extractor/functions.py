@@ -347,7 +347,7 @@ def select_flight_files(
 
 
 def collect_flight_candidates(
-    files: list[dict], base_index: int, used_indexes: set[int], s
+    files: list[dict], base_index: int, used_indexes: set[int]
 ) -> dict[str, list[dict]]:
     """Collect unused files close enough to the base file for a flight."""
 
