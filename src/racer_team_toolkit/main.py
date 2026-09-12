@@ -9,18 +9,18 @@ def main() -> None:
     while True:
         print_header("Racer Team Toolkit")
 
-        choice = select_menu("Select a tool:", TOOL_MENU_CHOICES)
+        choice = select_menu(
+            "Select a tool:",
+            TOOL_MENU_CHOICES,
+        )
 
         if choice == "REFF & Video Extractor":
-            # run extractor
             run_reff_and_videos_extractor_main()
 
         elif choice == "APK Installer":
-            # run APK installer
             run_apk_installer_main()
 
-        elif choice == "JAR Management (Not Available Yet)":
-            # run JAR management
+        elif choice == "JAR Management":
             run_jar_management_main()
 
         elif choice == "Exit" or choice is None:
