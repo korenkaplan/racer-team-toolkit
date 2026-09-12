@@ -1,6 +1,6 @@
 """JAR Management menu entry point."""
 
-from racer_team_toolkit.jar_management.functions import restart_jar
+from racer_team_toolkit.jar_management.functions import restart_jar, upload_jar
 from racer_team_toolkit.ui.functions import (
     pause,
     print_header,
@@ -35,7 +35,11 @@ def main() -> None:
 
     elif user_choice == JAR_MANAGEMENT_CHOICES[1]:
         print_header(JAR_MANAGEMENT_CHOICES[1])
-        print("Upload JAR - not implemented yet")
+
+        if upload_jar():
+            print("✓ Racer Groundlord JAR uploaded and restarted successfully.")
+        else:
+            print("[!] Failed to upload Racer Groundlord JAR.")
 
     elif user_choice == JAR_MANAGEMENT_CHOICES[2]:
         return

@@ -5,7 +5,14 @@ from pathlib import Path
 
 import paramiko
 
-from racer_team_toolkit.jar_management.config import SSH_HOST, SSH_PASSWORD, SSH_PORT, SSH_USERNAME
+from racer_team_toolkit.jar_management.config import (
+    JAR_FILENAME,
+    REMOTE_JAR_DIRECTORY,
+    SSH_HOST,
+    SSH_PASSWORD,
+    SSH_PORT,
+    SSH_USERNAME,
+)
 from racer_team_toolkit.ui.functions import select_menu
 
 
@@ -238,3 +245,71 @@ def folder_contains_groundlord_jar(folder: Path) -> bool:
         path.is_file() and path.name == "racer-groundlord.jar"
         for path in folder.rglob("racer-groundlord.jar")
     )
+
+
+def upload_jar_file(
+    ssh: paramiko.SSHClient,
+    local_jar_path: Path,
+) -> bool:
+    """Upload the selected Groundlord JAR to the remote server."""
+
+    remote_jar_path = f"{REMOTE_JAR_DIRECTORY}/{JAR_FILENAME}"
+
+    try:
+        with ssh.open_sftp() as sftp:
+            sftp.put(
+                str(local_jar_path),
+                remote_jar_path,
+            )
+
+    except (OSError, paramiko.SSHException) as error:
+        print(f"[!] Failed to upload JAR: {error}")
+        return False
+
+    return True
+
+
+def upload_jar() -> bool:
+    """Upload a new Groundlord JAR and restart the Java processes."""
+
+    local_jar_path = select_jar_file()
+
+    if local_jar_path is None:
+        print("[!] JAR upload cancelled.")
+        return False
+
+    if not is_ssh_server_reachable():
+        print(f"[!] SSH server is not reachable at {SSH_HOST}:{SSH_PORT}.")
+        return False
+
+    ssh = connect_to_server()
+
+    if ssh is None:
+        return False
+
+    try:
+        if not stop_screen_sessions(ssh):
+            return False
+
+        if not verify_screen_stopped(ssh):
+            return False
+
+        if not upload_jar_file(
+            ssh,
+            local_jar_path,
+        ):
+            return False
+
+        success, output = run_java_script(ssh)
+
+        if not success:
+            return False
+
+        if not verify_groundlord_started(output):
+            print("[!] Racer Groundlord did not start successfully.")
+            return False
+
+        return True
+
+    finally:
+        ssh.close()
