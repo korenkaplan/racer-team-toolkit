@@ -12,6 +12,7 @@ from rich.progress import (
     TaskProgressColumn,
     TransferSpeedColumn,
 )
+from rich.status import Status
 
 from racer_team_toolkit.jar_management.config import (
     JAR_FILENAME,
@@ -173,34 +174,58 @@ def verify_groundlord_started(output: str) -> bool:
 def restart_jar() -> bool:
     """Restart the Racer Groundlord JAR on the remote server."""
 
-    if not is_ssh_server_reachable():
-        print(f"[!] SSH server is not reachable at {SSH_HOST}:{SSH_PORT}.")
-        return False
-
-    ssh = connect_to_server()
-
-    if ssh is None:
-        return False
-
-    try:
-        if not stop_screen_sessions(ssh):
+    with Status(
+        "Checking server connection...",
+        console=console,
+        spinner="dots",
+    ) as status:
+        if not is_ssh_server_reachable():
+            console.print(f"[red]✗[/red] SSH server is not reachable at {SSH_HOST}:{SSH_PORT}.")
             return False
 
-        if not verify_screen_stopped(ssh):
+        console.print("[green]✓[/green] Server reachable")
+
+        status.update("Connecting to server...")
+
+        ssh = connect_to_server()
+
+        if ssh is None:
             return False
 
-        success, output = run_java_script(ssh)
+        console.print("[green]✓[/green] Connected to server")
 
-        if not success:
-            return False
+        try:
+            status.update("Stopping running JAR processes...")
 
-        if not verify_groundlord_started(output):
-            print("[!] Racer Groundlord did not start successfully.")
-            return False
-        return True
+            if not stop_screen_sessions(ssh):
+                return False
 
-    finally:
-        ssh.close()
+            if not verify_screen_stopped(ssh):
+                return False
+
+            console.print("[green]✓[/green] Existing processes stopped")
+
+            status.update("Starting Java processes...")
+
+            success, output = run_java_script(ssh)
+
+            if not success:
+                return False
+
+            console.print("[green]✓[/green] Java startup command completed")
+
+            status.update("Verifying Racer Groundlord...")
+
+            if not verify_groundlord_started(output):
+                console.print("[red]✗[/red] Racer Groundlord did not start successfully.")
+                return False
+
+            console.print("[green]✓[/green] Racer Groundlord is running")
+
+            return True
+
+        finally:
+            ssh.close()
 
 
 def select_jar_file() -> Path | None:
@@ -306,69 +331,72 @@ def upload_jar_file(
 def upload_jar() -> bool:
     """Upload a new Groundlord JAR and restart the Java processes."""
 
-    local_jar_path = select_jar_file()
-
-    if local_jar_path is None:
-        console.print("[yellow]Upload cancelled.[/yellow]")
-        return False
-
-    console.print(f"\nSelected: [bold]{local_jar_path.name}[/bold]\n")
-
-    console.print("[dim]Checking server connection...[/dim]")
-
-    if not is_ssh_server_reachable():
-        console.print(f"[red]✗[/red] Server is not reachable at {SSH_HOST}:{SSH_PORT}.")
-        return False
-
-    console.print("[green]✓[/green] Server reachable")
-
-    console.print("[dim]Connecting to server...[/dim]")
-    ssh = connect_to_server()
-
-    if ssh is None:
-        return False
-
-    console.print("[green]✓[/green] Connected to server")
-
-    try:
-        console.print("[dim]Stopping running JAR processes...[/dim]")
-
-        if not stop_screen_sessions(ssh):
+    with Status(
+        "Checking server connection...",
+        console=console,
+        spinner="dots",
+    ) as status:
+        if not is_ssh_server_reachable():
+            console.print(f"[red]✗[/red] Server is not reachable at {SSH_HOST}:{SSH_PORT}.")
             return False
 
-        if not verify_screen_stopped(ssh):
+        console.print("[green]✓[/green] Server reachable")
+
+        status.update("Connecting to server...")
+
+        ssh = connect_to_server()
+
+        if ssh is None:
             return False
 
-        console.print("[green]✓[/green] Existing processes stopped")
+        console.print("[green]✓[/green] Connected to server")
 
-        console.print()
+        try:
+            status.update("Stopping running JAR processes...")
 
-        if not upload_jar_file(
-            ssh,
-            local_jar_path,
-        ):
-            return False
+            if not stop_screen_sessions(ssh):
+                return False
 
-        console.print("[green]✓[/green] JAR upload completed")
+            if not verify_screen_stopped(ssh):
+                return False
 
-        console.print("[dim]Starting Java processes...[/dim]")
+            console.print("[green]✓[/green] Existing processes stopped")
 
-        success, output = run_java_script(ssh)
+            # Only now ask the user which JAR to upload.
+            local_jar_path = select_jar_file()
 
-        if not success:
-            return False
+            if local_jar_path is None:
+                console.print("[yellow]Upload cancelled.[/yellow]")
+                return False
 
-        console.print("[green]✓[/green] Java startup command completed")
+            console.print(f"\nSelected: [bold]{local_jar_path.name}[/bold]\n")
 
-        console.print("[dim]Verifying Racer Groundlord...[/dim]")
+            if not upload_jar_file(
+                ssh,
+                local_jar_path,
+            ):
+                return False
 
-        if not verify_groundlord_started(output):
-            console.print("[red]✗[/red] Racer Groundlord did not start successfully.")
-            return False
+            console.print("[green]✓[/green] JAR upload completed")
 
-        console.print("[green]✓[/green] Racer Groundlord is running")
+            status.update("Starting Java processes...")
 
-        return True
+            success, output = run_java_script(ssh)
 
-    finally:
-        ssh.close()
+            if not success:
+                return False
+
+            console.print("[green]✓[/green] Java startup command completed")
+
+            status.update("Verifying Racer Groundlord...")
+
+            if not verify_groundlord_started(output):
+                console.print("[red]✗[/red] Racer Groundlord did not start successfully.")
+                return False
+
+            console.print("[green]✓[/green] Racer Groundlord is running")
+
+            return True
+
+        finally:
+            ssh.close()
