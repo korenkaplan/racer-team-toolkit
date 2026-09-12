@@ -28,9 +28,7 @@ def main() -> None:
 
     if user_choice == JAR_MANAGEMENT_CHOICES[0]:
         print_header(JAR_MANAGEMENT_CHOICES[0])
-        if restart_jar():
-            print("✓ Racer Groundlord restarted successfully.")
-        else:
+        if not restart_jar():
             print("[!] Failed to restart Racer Groundlord.")
 
     elif user_choice == JAR_MANAGEMENT_CHOICES[1]:

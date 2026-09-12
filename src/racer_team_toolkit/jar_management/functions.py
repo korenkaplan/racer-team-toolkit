@@ -4,6 +4,14 @@ import socket
 from pathlib import Path
 
 import paramiko
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TaskProgressColumn,
+    TransferSpeedColumn,
+)
 
 from racer_team_toolkit.jar_management.config import (
     JAR_FILENAME,
@@ -14,6 +22,8 @@ from racer_team_toolkit.jar_management.config import (
     SSH_USERNAME,
 )
 from racer_team_toolkit.ui.functions import select_menu
+
+console = Console()
 
 
 def is_ssh_server_reachable(
@@ -251,19 +261,43 @@ def upload_jar_file(
     ssh: paramiko.SSHClient,
     local_jar_path: Path,
 ) -> bool:
-    """Upload the selected Groundlord JAR to the remote server."""
+    """Upload the selected Groundlord JAR with transfer progress."""
 
     remote_jar_path = f"{REMOTE_JAR_DIRECTORY}/{JAR_FILENAME}"
 
     try:
         with ssh.open_sftp() as sftp:
-            sftp.put(
-                str(local_jar_path),
-                remote_jar_path,
-            )
+            with Progress(
+                "[progress.description]{task.description}",
+                BarColumn(),
+                TaskProgressColumn(),
+                DownloadColumn(),
+                TransferSpeedColumn(),
+                console=console,
+            ) as progress:
+                task_id = progress.add_task(
+                    "Uploading JAR",
+                    total=local_jar_path.stat().st_size,
+                )
+
+                def update_progress(
+                    transferred: int,
+                    total: int,
+                ) -> None:
+                    progress.update(
+                        task_id,
+                        completed=transferred,
+                        total=total,
+                    )
+
+                sftp.put(
+                    str(local_jar_path),
+                    remote_jar_path,
+                    callback=update_progress,
+                )
 
     except (OSError, paramiko.SSHException) as error:
-        print(f"[!] Failed to upload JAR: {error}")
+        console.print(f"[red]✗[/red] Failed to upload JAR: {error}")
         return False
 
     return True
@@ -275,24 +309,39 @@ def upload_jar() -> bool:
     local_jar_path = select_jar_file()
 
     if local_jar_path is None:
-        print("[!] JAR upload cancelled.")
+        console.print("[yellow]Upload cancelled.[/yellow]")
         return False
+
+    console.print(f"\nSelected: [bold]{local_jar_path.name}[/bold]\n")
+
+    console.print("[dim]Checking server connection...[/dim]")
 
     if not is_ssh_server_reachable():
-        print(f"[!] SSH server is not reachable at {SSH_HOST}:{SSH_PORT}.")
+        console.print(f"[red]✗[/red] Server is not reachable at {SSH_HOST}:{SSH_PORT}.")
         return False
 
+    console.print("[green]✓[/green] Server reachable")
+
+    console.print("[dim]Connecting to server...[/dim]")
     ssh = connect_to_server()
 
     if ssh is None:
         return False
 
+    console.print("[green]✓[/green] Connected to server")
+
     try:
+        console.print("[dim]Stopping running JAR processes...[/dim]")
+
         if not stop_screen_sessions(ssh):
             return False
 
         if not verify_screen_stopped(ssh):
             return False
+
+        console.print("[green]✓[/green] Existing processes stopped")
+
+        console.print()
 
         if not upload_jar_file(
             ssh,
@@ -300,14 +349,24 @@ def upload_jar() -> bool:
         ):
             return False
 
+        console.print("[green]✓[/green] JAR upload completed")
+
+        console.print("[dim]Starting Java processes...[/dim]")
+
         success, output = run_java_script(ssh)
 
         if not success:
             return False
 
+        console.print("[green]✓[/green] Java startup command completed")
+
+        console.print("[dim]Verifying Racer Groundlord...[/dim]")
+
         if not verify_groundlord_started(output):
-            print("[!] Racer Groundlord did not start successfully.")
+            console.print("[red]✗[/red] Racer Groundlord did not start successfully.")
             return False
+
+        console.print("[green]✓[/green] Racer Groundlord is running")
 
         return True
 
