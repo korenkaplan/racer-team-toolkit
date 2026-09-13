@@ -1,10 +1,30 @@
+from collections.abc import Callable
+from typing import TypeVar
+
 import questionary
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.status import Status
 from rich.table import Table
 
 console = Console()
+T = TypeVar("T")
+
+
+def run_with_spinner(
+    message: str,
+    function: Callable[..., T],
+    *args,
+    **kwargs,
+) -> T:
+    """Run a function while displaying a spinner."""
+
+    with Status(
+        message,
+        console=console,
+        spinner="dots",
+    ):
+        return function(*args, **kwargs)
 
 
 def select_menu(message: str, choices: list[str]) -> str:
@@ -49,21 +69,6 @@ def print_error(message: str) -> None:
 def pause(message: str = "Press Enter to return...") -> None:
     """Pause the program and wait for user input."""
     input(message)
-
-
-def run_with_spinner(message: str, function, *args, **kwargs):
-    """Run a function with a spinner and display a message."""
-
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        transient=True,
-    ) as progress:
-        task = progress.add_task(message, start=False)
-        progress.start_task(task)
-        result = function(*args, **kwargs)
-        progress.stop_task(task)
-    return result
 
 
 def print_flight_table(
