@@ -32,15 +32,72 @@ jobs:
       - name: Run tests
         run: uv run pytest
 
+      - name: Locate Android Platform Tools
+        shell: pwsh
+        run: |
+          $platformTools = Join-Path $env:ANDROID_HOME "platform-tools"
+
+          if (-not (Test-Path "$platformTools\adb.exe")) {
+              Write-Error "adb.exe was not found in $platformTools"
+              exit 1
+          }
+
+          if (-not (Test-Path "$platformTools\AdbWinApi.dll")) {
+              Write-Error "AdbWinApi.dll was not found in $platformTools"
+              exit 1
+          }
+
+          if (-not (Test-Path "$platformTools\AdbWinUsbApi.dll")) {
+              Write-Error "AdbWinUsbApi.dll was not found in $platformTools"
+              exit 1
+          }
+
+          Write-Host "Using Android Platform Tools from: $platformTools"
+
+      - name: Create production environment
+        shell: pwsh
+        env:
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SSH_PASSWORD)) {
+              Write-Error "SSH_PASSWORD GitHub secret is missing"
+              exit 1
+          }
+
+          @"
+          RACER_TOOLKIT_STATUS=production
+          SSH_PASSWORD=$env:SSH_PASSWORD
+          "@ | Set-Content .env
+
+          Write-Host "Production environment file created."
+
       - name: Build Windows executable
-        run: >
-          uv run pyinstaller
-          --onefile
-          --name racer-team-toolkit
-          src/racer_team_toolkit/main.py
+        shell: pwsh
+        run: |
+          $platformTools = Join-Path $env:ANDROID_HOME "platform-tools"
+
+          uv run pyinstaller `
+            --onefile `
+            --name racer-team-toolkit `
+            --add-data ".env;." `
+            --add-binary "$platformTools\adb.exe;." `
+            --add-binary "$platformTools\AdbWinApi.dll;." `
+            --add-binary "$platformTools\AdbWinUsbApi.dll;." `
+            src/racer_team_toolkit/main.py
+
+      - name: Verify executable exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\racer-team-toolkit.exe")) {
+              Write-Error "Windows executable was not created"
+              exit 1
+          }
+
+          Write-Host "Windows executable created successfully."
 
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
           name: racer-team-toolkit-windows
           path: dist/racer-team-toolkit.exe
+          if-no-files-found: error

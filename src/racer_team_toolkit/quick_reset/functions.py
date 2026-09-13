@@ -99,7 +99,6 @@ def count_remote_files(
 
     result = run_adb_command(
         [
-            "adb",
             "-s",
             device.serial,
             "shell",
@@ -218,7 +217,6 @@ def reset_remote_folder(
 
     result = run_adb_command(
         [
-            "adb",
             "-s",
             device.serial,
             "shell",

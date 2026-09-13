@@ -47,7 +47,7 @@ def get_device_time_info(
 def get_device_datetime(device: AndroidDevice) -> datetime | None:
     """Read the current date and time from an Android device."""
 
-    result = run_adb_command(["adb", "-s", device.serial, "shell", "date", "+%s"])
+    result = run_adb_command(["-s", device.serial, "shell", "date", "+%s"])
 
     if result.returncode != 0:
         return None
@@ -156,7 +156,6 @@ def get_remote_files(device: AndroidDevice, remote_path: str) -> list[str]:
 
     result = run_adb_command(
         [
-            "adb",
             "-s",
             device.serial,
             "shell",
@@ -181,7 +180,6 @@ def get_remote_file_timestamp(
 
     result = run_adb_command(
         [
-            "adb",
             "-s",
             device.serial,
             "shell",
@@ -252,7 +250,6 @@ def set_remote_file_timestamp(
 
     result = run_adb_command(
         [
-            "adb",
             "-s",
             device.serial,
             "shell",

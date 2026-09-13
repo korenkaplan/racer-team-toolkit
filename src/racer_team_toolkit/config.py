@@ -1,8 +1,24 @@
 """Central configuration for the Racer Team Toolkit."""
 
+import os
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+def get_env_path() -> Path:
+    """Return the .env path for development or packaged builds."""
+
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / ".env"  # type: ignore[attr-defined]
+
+    return Path.cwd() / ".env"
+
+
+load_dotenv(get_env_path())
 
 
 @dataclass
@@ -72,7 +88,10 @@ DEVICES_REGISTRY: list[AndroidDevice] = [
 ]
 
 # REFF extraction settings.
-PROJECT_STATUS = "development"
+PROJECT_STATUS = os.getenv(
+    "RACER_TOOLKIT_STATUS",
+    "development",
+)
 MAX_FLIGHT_TIME_DIFF = 120
 MAX_VIDEO_TIME_DIFF = 300
 MAX_DEVICE_TIME_DIFF_SECONDS = 60

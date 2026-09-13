@@ -490,7 +490,7 @@ def pull_reff_files(device: AndroidDevice, progress: Progress, task_id: int) -> 
 def build_pull_command(serial: str, remote_path: str) -> list[str]:
     """Build an ADB pull command for a device path."""
 
-    return ["adb", "-s", serial, "pull", "-a", remote_path, LOCAL_DUMP_DIR]
+    return ["-s", serial, "pull", "-a", remote_path, LOCAL_DUMP_DIR]
 
 
 def move_record_files(
@@ -640,7 +640,6 @@ def clear_remote_directory(serial: str, remote_path: str) -> bool:
 
     result = run_adb_command(
         [
-            "adb",
             "-s",
             serial,
             "shell",

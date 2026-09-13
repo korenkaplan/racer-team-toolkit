@@ -89,7 +89,7 @@ def run_installation(plan: InstallationPlan, console) -> InstallationResult:
         console,
         "Installing new APK...",
         "APK installed",
-        ["adb", "-s", device.serial, "install", "-r", str(plan.apk_path)],
+        ["-s", device.serial, "install", "-r", str(plan.apk_path)],
     )
     if install_error:
         return InstallationResult(device, "failed", install_error)
@@ -113,7 +113,6 @@ def uninstall_application(device: AndroidDevice, console) -> Optional[str]:
         "3.1 Uninstalling current application...",
         "Application uninstalled",
         [
-            "adb",
             "-s",
             device.serial,
             "uninstall",
@@ -134,7 +133,6 @@ def configure_install_verification(device: AndroidDevice, console) -> None:
     for setting, value in settings:
         result = run_adb_command(
             [
-                "adb",
                 "-s",
                 device.serial,
                 "shell",
@@ -209,7 +207,6 @@ def grant_permissions(device: AndroidDevice, console) -> Optional[str]:
     for permission in device.permissions:
         result = run_adb_command(
             [
-                "adb",
                 "-s",
                 device.serial,
                 "shell",
@@ -233,7 +230,6 @@ def is_package_installed(device: AndroidDevice) -> bool:
 
     result = run_adb_command(
         [
-            "adb",
             "-s",
             device.serial,
             "shell",
@@ -254,7 +250,6 @@ def grant_manage_all_files(device: AndroidDevice, console) -> str | None:
         "3.4 Granting all files access...",
         "All files access granted",
         [
-            "adb",
             "-s",
             device.serial,
             "shell",
