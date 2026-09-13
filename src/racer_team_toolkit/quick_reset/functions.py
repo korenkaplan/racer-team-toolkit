@@ -82,7 +82,17 @@ def custom_reset() -> None:
         console.print("\n[yellow]Reset cancelled.[/yellow]")
         return
 
-    console.print("\n[green]Reset confirmed. Deletion not implemented yet.[/green]")
+    success = apply_reset_plan(
+        selected_devices,
+        reset_plan,
+    )
+
+    console.print()
+
+    if success:
+        console.print("[bold green]✓ Custom Reset completed successfully.[/bold green]")
+    else:
+        console.print("[bold red]✗ Custom Reset completed with errors.[/bold red]")
 
 
 def select_folders_for_device(
@@ -206,6 +216,75 @@ def print_reset_plan(
     return total_files
 
 
+def apply_reset_plan(
+    devices: list[AndroidDevice],
+    reset_plan: dict[str, set[str]],
+) -> bool:
+    """Apply the selected folder reset plan."""
+
+    all_successful = True
+
+    for device in devices:
+        selected_folders = reset_plan.get(
+            device.serial,
+            set(),
+        )
+
+        if not selected_folders:
+            continue
+
+        console.rule(f"[bold]{device.name}[/bold]")
+
+        if "reff" in selected_folders:
+            success = reset_remote_folder(
+                device,
+                device.remote_log_path,
+            )
+
+            if success:
+                console.print("[green]✓[/green] REFF folder reset")
+            else:
+                console.print("[red]✗[/red] Failed to reset REFF folder")
+                all_successful = False
+
+        if "videos" in selected_folders:
+            success = reset_remote_folder(
+                device,
+                VIDEO_REMOTE_PATH,
+            )
+
+            if success:
+                console.print("[green]✓[/green] Screen Videos folder reset")
+            else:
+                console.print("[red]✗[/red] Failed to reset Screen Videos folder")
+                all_successful = False
+
+    return all_successful
+
+
+def reset_remote_folder(
+    device: AndroidDevice,
+    remote_path: str,
+) -> bool:
+    """Delete all contents of a remote Android folder."""
+
+    result = run_adb_command(
+        [
+            "adb",
+            "-s",
+            device.serial,
+            "shell",
+            "find",
+            remote_path,
+            "-mindepth",
+            "1",
+            "-delete",
+        ]
+    )
+
+    return result.returncode == 0
+
+
 def confirm_reset() -> bool:
     """Ask the user to confirm the reset operation."""
 
@@ -213,3 +292,40 @@ def confirm_reset() -> bool:
         "Continue with reset?",
         default=False,
     ).ask()
+
+
+def quick_reset() -> None:
+    """Reset REFF and Screen Videos for all connected devices."""
+
+    devices = get_connected_android_devices()
+
+    if not devices:
+        console.print("[yellow]No supported Android devices are connected.[/yellow]")
+        return
+
+    reset_plan = {device.serial: {"reff", "videos"} for device in devices}
+
+    total_files = print_reset_plan(
+        devices,
+        reset_plan,
+    )
+
+    if total_files == 0:
+        console.print("\n[yellow]All folders are already empty.[/yellow]")
+        return
+
+    if not confirm_reset():
+        console.print("\n[yellow]Reset cancelled.[/yellow]")
+        return
+
+    success = apply_reset_plan(
+        devices,
+        reset_plan,
+    )
+
+    console.print()
+
+    if success:
+        console.print("[bold green]✓ Quick Reset completed successfully.[/bold green]")
+    else:
+        console.print("[bold red]✗ Quick Reset completed with errors.[/bold red]")

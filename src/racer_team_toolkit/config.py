@@ -83,7 +83,7 @@ TOOL_MENU_CHOICES = [
     "REFF & Video Extractor",
     "APK Installer",
     "JAR Management",
-    "Quick Reset",
+    "Folders Reset",
     "Exit",
 ]
 APK_INSTALLER_HEADER = "Select a folder to install APKs from:"

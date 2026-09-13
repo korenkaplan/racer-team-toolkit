@@ -15,19 +15,19 @@ def main() -> None:
             TOOL_MENU_CHOICES,
         )
 
-        if choice == "REFF & Video Extractor":
+        if choice == TOOL_MENU_CHOICES[0]:
             run_reff_and_videos_extractor_main()
 
-        elif choice == "APK Installer":
+        elif choice == TOOL_MENU_CHOICES[1]:
             run_apk_installer_main()
 
-        elif choice == "JAR Management":
+        elif choice == TOOL_MENU_CHOICES[2]:
             run_jar_management_main()
 
-        elif choice == "Quick Reset":
+        elif choice == TOOL_MENU_CHOICES[3]:
             run_quick_reset_main()
 
-        elif choice == "Exit" or choice is None:
+        elif choice == TOOL_MENU_CHOICES[4] or choice is None:
             break
 
 
