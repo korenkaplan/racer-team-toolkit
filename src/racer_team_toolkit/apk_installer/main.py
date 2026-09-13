@@ -5,7 +5,7 @@ from pathlib import Path
 from rich.table import Table
 from rich.text import Text
 
-from racer_team_toolkit.adb import get_connected_serials
+from racer_team_toolkit.adb.functions import get_connected_serials
 from racer_team_toolkit.apk_installer.functions import (
     InstallationPlan,
     InstallationResult,

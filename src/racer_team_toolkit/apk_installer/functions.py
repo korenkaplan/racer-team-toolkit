@@ -6,7 +6,7 @@ from typing import Optional
 
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from racer_team_toolkit.adb import run_adb_command
+from racer_team_toolkit.adb.functions import run_adb_command
 from racer_team_toolkit.config import AndroidDevice
 
 

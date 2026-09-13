@@ -7,7 +7,7 @@ from typing import Optional
 
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
-from racer_team_toolkit.adb import get_connected_serials, run_adb_command
+from racer_team_toolkit.adb.functions import get_connected_serials, run_adb_command
 from racer_team_toolkit.config import (
     DEVICES_REGISTRY,
     LOCAL_DUMP_DIR,

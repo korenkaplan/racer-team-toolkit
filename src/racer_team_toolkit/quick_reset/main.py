@@ -1,5 +1,6 @@
 """Quick Reset menu entry point."""
 
+from racer_team_toolkit.quick_reset.functions import custom_reset
 from racer_team_toolkit.ui.functions import (
     pause,
     print_header,
@@ -27,12 +28,10 @@ def main() -> None:
 
     if user_choice == QUICK_RESET_CHOICES[0]:
         print_header("Quick Reset")
-        print("Quick Reset - not implemented yet")
 
     elif user_choice == QUICK_RESET_CHOICES[1]:
         print_header("Custom Reset")
-        print("Custom Reset - not implemented yet")
-
+        custom_reset()
     elif user_choice == QUICK_RESET_CHOICES[2] or user_choice is None:
         return
 

@@ -4,7 +4,7 @@ from pathlib import PurePosixPath
 import questionary
 from rich.table import Table
 
-from racer_team_toolkit.adb import get_connected_serials, run_adb_command
+from racer_team_toolkit.adb.functions import get_connected_serials, run_adb_command
 from racer_team_toolkit.config import MAX_DEVICE_TIME_DIFF_SECONDS, VIDEO_REMOTE_PATH, AndroidDevice
 from racer_team_toolkit.reff_extractor.functions import get_connected_devices
 from racer_team_toolkit.reff_extractor.time_adjustment_dataclasses import (
