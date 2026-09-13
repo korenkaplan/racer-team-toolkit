@@ -1,0 +1,1 @@
+"""Quick Reset functions."""

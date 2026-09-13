@@ -1,6 +1,7 @@
 from racer_team_toolkit.apk_installer.main import main as run_apk_installer_main
 from racer_team_toolkit.config import TOOL_MENU_CHOICES
 from racer_team_toolkit.jar_management.main import main as run_jar_management_main
+from racer_team_toolkit.quick_reset.main import main as run_quick_reset_main
 from racer_team_toolkit.reff_extractor.main import main as run_reff_and_videos_extractor_main
 from racer_team_toolkit.ui.functions import print_header, select_menu
 
@@ -22,6 +23,9 @@ def main() -> None:
 
         elif choice == "JAR Management":
             run_jar_management_main()
+
+        elif choice == "Quick Reset":
+            run_quick_reset_main()
 
         elif choice == "Exit" or choice is None:
             break
