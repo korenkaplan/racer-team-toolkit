@@ -79,6 +79,7 @@ jobs:
           uv run pyinstaller `
             --onefile `
             --name racer-team-toolkit `
+            --icon "assets/racer-team-toolkit.ico" `
             --add-data ".env;." `
             --add-binary "$platformTools\adb.exe;." `
             --add-binary "$platformTools\AdbWinApi.dll;." `
