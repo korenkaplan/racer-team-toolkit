@@ -1,14 +1,22 @@
 """Reusable REFF and screen-video extraction functions."""
 
 import os
-from racer_team_toolkit.reff_extractor.time_adjustment_functions import (
-    get_remote_files_from_today,
-    validate_device_times_before_extraction,
-)
 import shutil
+import subprocess
+import time
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Optional
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
+
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TransferSpeedColumn,
+)
 
 from racer_team_toolkit.adb import get_connected_serials, run_adb_command
 from racer_team_toolkit.config import (
@@ -20,6 +28,10 @@ from racer_team_toolkit.config import (
     SUPPORTED_DEVICE_TYPES,
     VIDEO_REMOTE_PATH,
     AndroidDevice,
+)
+from racer_team_toolkit.reff_extractor.time_adjustment_functions import (
+    get_remote_files_from_today,
+    validate_device_times_before_extraction,
 )
 from racer_team_toolkit.ui.functions import (
     console,
@@ -48,38 +60,23 @@ def run_extraction(*, include_videos: bool) -> None:
     connected_serials = get_connected_serials()
 
     if not connected_serials:
-        print(
-            "[-] No Devices Are Connected. "
-            "Please connect a device and try again."
-        )
+        print("[-] No Devices Are Connected. Please connect a device and try again.")
         return
 
-    connected_devices = get_connected_devices(
-        connected_serials
-    )
+    connected_devices = get_connected_devices(connected_serials)
 
     # Validate device clocks before importing anything.
-    devices_to_process = validate_device_times_before_extraction(
-        connected_devices
-    )
+    devices_to_process = validate_device_times_before_extraction(connected_devices)
 
     if not devices_to_process:
         console.print(
-            "\n[yellow]"
-            "No devices with valid file timestamps remain. "
-            "Extraction cancelled."
-            "[/yellow]"
+            "\n[yellow]No devices with valid file timestamps remain. Extraction cancelled.[/yellow]"
         )
         return
 
-    print_connected_devices(
-        devices_to_process
-    )
+    print_connected_devices(devices_to_process)
 
-    connected_device_types = tuple(
-        device.file_prefix
-        for device in devices_to_process
-    )
+    connected_device_types = tuple(device.file_prefix for device in devices_to_process)
 
     processed_any = False
     copied_reff_files = 0
@@ -107,6 +104,7 @@ def run_extraction(*, include_videos: bool) -> None:
         include_videos,
         connected_device_types,
     )
+
 
 def get_connected_devices(connected_serials: set[str]) -> list[AndroidDevice]:
     """Return registered devices that are currently connected."""
@@ -455,7 +453,11 @@ def move_flight_files(flight_dir: str, flight_files: list[dict]) -> None:
             print(f"[!] Failed to move a REFF file: {error}")
 
 
-def process_device(device: AndroidDevice, *, include_videos: bool = True) -> dict[str, int]:
+def process_device(
+    device: AndroidDevice,
+    *,
+    include_videos: bool = True,
+) -> dict[str, int]:
     """Pull REFF files from one device and optionally pull its videos."""
 
     print(f"\n[--->] Starting {get_transfer_verb().lower()} from: {device.name}")
@@ -465,24 +467,43 @@ def process_device(device: AndroidDevice, *, include_videos: bool = True) -> dic
         TextColumn("{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
         transient=False,
     ) as progress:
-        # REFF and video tasks have separate totals and counters.
-        reff_task_id = progress.add_task(f"REFF: {get_transfer_verb()} 0 of 0 files", total=0)
+        reff_task_id = progress.add_task(
+            f"REFF: {get_transfer_verb()} 0 of 0 files",
+            total=0,
+        )
+
         create_output_directory()
-        reff_files = pull_reff_files(device, progress, reff_task_id)
+
+        reff_files = pull_reff_files(
+            device,
+            progress,
+            reff_task_id,
+        )
+
         videos = 0
 
         if include_videos:
             video_task_id = progress.add_task(
-                f"Videos: {get_transfer_verb()} 0 of 0 files", total=0
+                f"Videos: {get_transfer_verb()} 0 of 0 files",
+                total=0,
             )
-            videos = pull_videos(device, progress, video_task_id)
+
+            videos = pull_videos(
+                device,
+                progress,
+                video_task_id,
+            )
 
     print(f"[<---] Finished {get_transfer_verb().lower()} from: {device.name}")
 
-    return {"reff_files": reff_files, "videos": videos}
-
+    return {
+        "reff_files": reff_files,
+        "videos": videos,
+    }
 
 
 def build_pull_command(
@@ -502,8 +523,10 @@ def build_pull_command(
         local_directory,
     ]
 
+
 def move_record_files(
-    records_dir: str, device: AndroidDevice, progress: Progress, task_id: int
+    records_dir: str,
+    device: AndroidDevice,
 ) -> int:
     """Move record files into the dump directory with device prefixes."""
 
@@ -511,23 +534,45 @@ def move_record_files(
 
     for root, _, filenames in os.walk(records_dir):
         for filename in filenames:
-            source_path = os.path.join(root, filename)
-            prefixed_filename = add_device_prefix(filename, device.file_prefix)
-            destination_path = os.path.join(LOCAL_DUMP_DIR, prefixed_filename)
+            source_path = os.path.join(
+                root,
+                filename,
+            )
+
+            prefixed_filename = add_device_prefix(
+                filename,
+                device.file_prefix,
+            )
+
+            destination_path = os.path.join(
+                LOCAL_DUMP_DIR,
+                prefixed_filename,
+            )
 
             try:
-                # Flight matching depends on the original device timestamp.
                 original_mtime = os.path.getmtime(source_path)
-                transfer_file(source_path, destination_path)
+
+                transfer_file(
+                    source_path,
+                    destination_path,
+                )
+
                 if PROJECT_STATUS == "production":
-                    os.utime(destination_path, (original_mtime, original_mtime))
+                    os.utime(
+                        destination_path,
+                        (
+                            original_mtime,
+                            original_mtime,
+                        ),
+                    )
+
                 else:
                     os.remove(source_path)
+
                 copied_count += 1
+
             except OSError as error:
                 print(f"[!] Failed to move a REFF file: {error}")
-            finally:
-                update_file_progress(progress, task_id, "REFF")
 
     return copied_count
 
@@ -563,13 +608,27 @@ def pull_videos(
         VIDEO_REMOTE_PATH,
     )
 
+    video_file_sizes: dict[str, int] = {}
+
+    for remote_file in video_files:
+        file_size = get_remote_file_size(
+            device,
+            remote_file,
+        )
+
+        if file_size is not None:
+            video_file_sizes[remote_file] = file_size
+
+    video_files = list(video_file_sizes)
+
     total_video_files = len(video_files)
+    total_video_bytes = sum(video_file_sizes.values())
 
     progress.update(
         task_id,
-        total=total_video_files,
+        total=total_video_bytes,
         completed=0,
-        description=f"Videos: {get_transfer_verb()} 0 of {total_video_files} files",
+        description=(f"Videos: {get_transfer_verb()} 0 of {total_video_files} files"),
     )
 
     if not video_files:
@@ -585,28 +644,37 @@ def pull_videos(
         exist_ok=True,
     )
 
-    for remote_file in video_files:
-        pull_remote_file(
+    successful_pulls = 0
+
+    for file_number, remote_file in enumerate(
+        video_files,
+        start=1,
+    ):
+        success = pull_remote_file(
             device,
             remote_file,
             videos_dir,
+            progress,
+            task_id,
+            (f"Videos: {get_transfer_verb()} {file_number} of {total_video_files} files"),
         )
+
+        if success:
+            successful_pulls += 1
 
     video_count = move_video_files(
         videos_dir,
         device,
-        progress,
-        task_id,
     )
 
-    remove_empty_directories(
-        videos_dir
-    )
+    remove_empty_directories(videos_dir)
 
     return video_count
 
+
 def move_video_files(
-    videos_dir: str, device: AndroidDevice, progress: Progress, task_id: int
+    videos_dir: str,
+    device: AndroidDevice,
 ) -> int:
     """Move downloaded videos into the dump directory with device prefixes."""
 
@@ -614,36 +682,44 @@ def move_video_files(
 
     for root, _, filenames in os.walk(videos_dir):
         for filename in filenames:
-            source_path = os.path.join(root, filename)
+            source_path = os.path.join(
+                root,
+                filename,
+            )
+
             destination_name = f"VIDEO_{device.file_prefix}_{filename}"
-            destination_path = os.path.join(LOCAL_DUMP_DIR, destination_name)
+
+            destination_path = os.path.join(
+                LOCAL_DUMP_DIR,
+                destination_name,
+            )
 
             try:
                 original_mtime = os.path.getmtime(source_path)
-                transfer_file(source_path, destination_path)
+
+                transfer_file(
+                    source_path,
+                    destination_path,
+                )
+
                 if PROJECT_STATUS == "production":
-                    os.utime(destination_path, (original_mtime, original_mtime))
+                    os.utime(
+                        destination_path,
+                        (
+                            original_mtime,
+                            original_mtime,
+                        ),
+                    )
+
                 else:
                     os.remove(source_path)
+
                 copied_count += 1
+
             except OSError as error:
                 print(f"[!] Failed to move a screen video: {error}")
-            finally:
-                update_file_progress(progress, task_id, "Videos")
 
     return copied_count
-
-
-def update_file_progress(progress: Progress, task_id: int, label: str) -> None:
-    """Advance the device progress bar for each processed file."""
-
-    task = progress.tasks[task_id]
-    completed = task.completed + 1
-    progress.update(
-        task_id,
-        advance=1,
-        description=f"{label}: {get_transfer_verb()} {completed} of {task.total} files",
-    )
 
 
 def count_files(directory: str) -> int:
@@ -692,12 +768,26 @@ def clear_remote_directory(serial: str, remote_path: str) -> bool:
 
     return True
 
+
 def pull_remote_file(
     device: AndroidDevice,
     remote_file: str,
     local_directory: str,
+    progress: Progress,
+    task_id: int,
+    description: str,
 ) -> bool:
-    """Pull one remote Android file while preserving its timestamp."""
+    """Pull one remote file while displaying live transfer progress."""
+
+    local_filename = PurePosixPath(remote_file).name
+
+    local_file = os.path.join(
+        local_directory,
+        local_filename,
+    )
+
+    if os.path.exists(local_file):
+        os.remove(local_file)
 
     command = build_pull_command(
         device.serial,
@@ -705,9 +795,83 @@ def pull_remote_file(
         local_directory,
     )
 
-    result = run_adb_command(command)
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
 
-    return result.returncode == 0
+    previous_size = 0
+
+    while process.poll() is None:
+        if os.path.exists(local_file):
+            current_size = os.path.getsize(local_file)
+
+            if current_size > previous_size:
+                progress.update(
+                    task_id,
+                    advance=current_size - previous_size,
+                    description=description,
+                )
+
+                previous_size = current_size
+
+        time.sleep(0.1)
+
+    _, error = process.communicate()
+
+    if os.path.exists(local_file):
+        final_size = os.path.getsize(local_file)
+
+        if final_size > previous_size:
+            progress.update(
+                task_id,
+                advance=final_size - previous_size,
+                description=description,
+            )
+
+    if process.returncode != 0:
+        if os.path.exists(local_file):
+            os.remove(local_file)
+
+        console.print(f"[red]✗ Failed to transfer {local_filename}[/red]")
+
+        if error.strip():
+            console.print(f"[red]{error.strip()}[/red]")
+
+        return False
+
+    return True
+
+
+def get_remote_file_size(
+    device: AndroidDevice,
+    remote_file: str,
+) -> int | None:
+    """Return the size of a remote Android file in bytes."""
+
+    result = run_adb_command(
+        [
+            "adb",
+            "-s",
+            device.serial,
+            "shell",
+            "stat",
+            "-c",
+            "%s",
+            remote_file,
+        ]
+    )
+
+    if result.returncode != 0:
+        return None
+
+    try:
+        return int(result.stdout.strip())
+
+    except ValueError:
+        return None
 
 
 def pull_reff_files(
@@ -722,13 +886,27 @@ def pull_reff_files(
         device.remote_log_path,
     )
 
+    reff_file_sizes: dict[str, int] = {}
+
+    for remote_file in reff_files:
+        file_size = get_remote_file_size(
+            device,
+            remote_file,
+        )
+
+        if file_size is not None:
+            reff_file_sizes[remote_file] = file_size
+
+    reff_files = list(reff_file_sizes)
+
     total_reff_files = len(reff_files)
+    total_reff_bytes = sum(reff_file_sizes.values())
 
     progress.update(
         task_id,
-        total=total_reff_files,
+        total=total_reff_bytes,
         completed=0,
-        description=f"REFF: {get_transfer_verb()} 0 of {total_reff_files} files",
+        description=(f"REFF: {get_transfer_verb()} 0 of {total_reff_files} files"),
     )
 
     if not reff_files:
@@ -744,22 +922,29 @@ def pull_reff_files(
         exist_ok=True,
     )
 
-    for remote_file in reff_files:
-        pull_remote_file(
+    successful_pulls = 0
+
+    for file_number, remote_file in enumerate(
+        reff_files,
+        start=1,
+    ):
+        success = pull_remote_file(
             device,
             remote_file,
             records_dir,
+            progress,
+            task_id,
+            (f"REFF: {get_transfer_verb()} {file_number} of {total_reff_files} files"),
         )
+
+        if success:
+            successful_pulls += 1
 
     copied_count = move_record_files(
         records_dir,
         device,
-        progress,
-        task_id,
     )
 
-    remove_empty_directories(
-        records_dir
-    )
+    remove_empty_directories(records_dir)
 
     return copied_count
