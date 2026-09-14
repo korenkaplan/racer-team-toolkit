@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime
 from pathlib import PurePosixPath
 
@@ -271,19 +272,40 @@ def apply_file_time_corrections(
     device: AndroidDevice,
     corrections: list[FileTimeCorrection],
 ) -> int:
-    """Apply approved timestamp corrections and return success count."""
+    """Correct file timestamps and timestamp-based filenames."""
 
     corrected_count = 0
 
     for correction in corrections:
-        success = set_remote_file_timestamp(
+        timestamp_updated = set_remote_file_timestamp(
             device,
             correction.file_path,
             correction.corrected_timestamp,
         )
 
-        if success:
-            corrected_count += 1
+        if not timestamp_updated:
+            console.print(
+                "[red]✗ Failed to correct timestamp: "
+                f"{PurePosixPath(correction.file_path).name}"
+                "[/red]"
+            )
+            continue
+
+        rename_succeeded = rename_corrected_remote_file(
+            device,
+            correction.file_path,
+            correction.corrected_timestamp,
+        )
+
+        if not rename_succeeded:
+            console.print(
+                "[red]✗ Timestamp corrected but filename rename failed: "
+                f"{PurePosixPath(correction.file_path).name}"
+                "[/red]"
+            )
+            continue
+
+        corrected_count += 1
 
     return corrected_count
 
@@ -409,120 +431,6 @@ def ask_apply_time_corrections() -> bool:
     ).ask()
 
     return choice == "Yes"
-
-
-def adjust_time_for_reff() -> None:
-    """Correct file timestamps created while Android clocks were incorrect."""
-
-    pc_datetime = get_pc_datetime()
-    time_info = get_connected_device_time_info(pc_datetime)
-
-    if not time_info:
-        console.print("[yellow]No connected supported devices found.[/yellow]")
-        return
-
-    print_device_time_table(
-        pc_datetime,
-        time_info,
-    )
-
-    incorrect_devices = get_devices_needing_time_fix(time_info)
-
-    if not incorrect_devices:
-        console.print("\n[green]✓ All connected device clocks are correct.[/green]")
-        return
-
-    console.print(f"\n[yellow]{len(incorrect_devices)} device(s) need time adjustment.[/yellow]")
-
-    correction_plans = []
-
-    for device_info in incorrect_devices:
-        device = device_info.device
-
-        reff_files = get_remote_files_from_wrong_date(
-            device_info,
-            device.remote_log_path,
-        )
-
-        video_files = get_remote_files_from_wrong_date(
-            device_info,
-            VIDEO_REMOTE_PATH,
-        )
-
-        files_to_adjust = reff_files + video_files
-
-        console.rule(f"[bold]{device.name}[/bold]")
-
-        console.print(
-            "Wrong device date: "
-            f"[yellow]"
-            f"{device_info.device_datetime.strftime('%d-%m-%Y')}"
-            f"[/yellow]"
-        )
-
-        console.print(
-            "Time correction: "
-            f"[yellow]"
-            f"{format_time_difference(device_info.difference_seconds)}"
-            f"[/yellow]"
-        )
-
-        console.print(f"REFF files found: [cyan]{len(reff_files)}[/cyan]")
-
-        console.print(f"Screen videos found: [cyan]{len(video_files)}[/cyan]")
-
-        if not files_to_adjust:
-            console.print("\n[yellow]No files found on the incorrect device date.[/yellow]")
-            continue
-
-        corrections = build_file_time_corrections(
-            device_info,
-            files_to_adjust,
-        )
-
-        if not corrections:
-            console.print("\n[yellow]Could not build any file corrections.[/yellow]")
-            continue
-
-        print_file_time_correction_table(
-            device_info,
-            corrections,
-        )
-
-        correction_plans.append(
-            (
-                device_info,
-                corrections,
-                len(reff_files),
-                len(video_files),
-            )
-        )
-
-    if not correction_plans:
-        return
-
-    if not ask_apply_time_corrections():
-        console.print("\n[yellow]No files were changed.[/yellow]")
-        return
-
-    for device_info, corrections, reff_count, video_count in correction_plans:
-        corrected_count = apply_file_time_corrections(
-            device_info.device,
-            corrections,
-        )
-
-        console.print()
-        console.print(
-            f"[green]✓ {device_info.device.name}: {corrected_count} file(s) corrected.[/green]"
-        )
-
-        console.print(f"  REFF files: {reff_count}")
-        console.print(f"  Screen videos: {video_count}")
-
-    console.print()
-    console.print("[bold yellow]⚠ The Android device clock is still incorrect.[/bold yellow]")
-
-    console.print("Please manually correct the date and time on the affected device(s).")
 
 
 def build_device_file_corrections(
@@ -721,3 +629,158 @@ def get_remote_files_from_today(
             matching_files.append(file_path)
 
     return matching_files
+
+
+def build_corrected_reff_filename(
+    corrected_timestamp: int,
+) -> str:
+    """Build a REFF filename from its corrected timestamp."""
+
+    corrected_datetime = datetime.fromtimestamp(corrected_timestamp)
+
+    return corrected_datetime.strftime("%d_%m_%Y_%H_%M_%S") + ".reff"
+
+
+def build_corrected_video_filename(
+    filename: str,
+    corrected_timestamp: int,
+) -> str | None:
+    """Return a corrected video filename when the filename contains a timestamp."""
+
+    pattern = (
+        r"^ScreenRec_"
+        r"\d{4}-\d{2}-\d{2}_"
+        r"\d{2}-\d{2}"
+        r"(?:-\d{2})?"
+        r"\.mp4$"
+    )
+
+    if not re.fullmatch(
+        pattern,
+        filename,
+        flags=re.IGNORECASE,
+    ):
+        return None
+
+    corrected_datetime = datetime.fromtimestamp(corrected_timestamp)
+
+    return "ScreenRec_" + corrected_datetime.strftime("%Y-%m-%d_%H-%M-%S") + ".mp4"
+
+
+def build_corrected_filename(
+    file_path: str,
+    corrected_timestamp: int,
+) -> str | None:
+    """Return a corrected filename when the file naming format contains a timestamp."""
+
+    remote_path = PurePosixPath(file_path)
+
+    suffix = remote_path.suffix.lower()
+
+    if suffix == ".reff":
+        return build_corrected_reff_filename(corrected_timestamp)
+
+    if suffix == ".mp4":
+        return build_corrected_video_filename(
+            remote_path.name,
+            corrected_timestamp,
+        )
+
+    return None
+
+
+def remote_file_exists(
+    device: AndroidDevice,
+    file_path: str,
+) -> bool:
+    """Return whether a remote Android file exists."""
+
+    result = run_adb_command(
+        [
+            "adb",
+            "-s",
+            device.serial,
+            "shell",
+            "test",
+            "-e",
+            file_path,
+        ]
+    )
+
+    return result.returncode == 0
+
+
+def rename_corrected_remote_file(
+    device: AndroidDevice,
+    file_path: str,
+    corrected_timestamp: int,
+) -> bool:
+    """Rename a remote file when its filename contains timestamp information."""
+
+    remote_path = PurePosixPath(file_path)
+
+    corrected_filename = build_corrected_filename(
+        file_path,
+        corrected_timestamp,
+    )
+
+    if corrected_filename is None:
+        return True
+
+    destination_path = build_unique_remote_path(
+        device,
+        remote_path.parent,
+        corrected_filename,
+        file_path,
+    )
+
+    if destination_path == file_path:
+        return True
+
+    result = run_adb_command(
+        [
+            "adb",
+            "-s",
+            device.serial,
+            "shell",
+            "mv",
+            file_path,
+            destination_path,
+        ]
+    )
+
+    return result.returncode == 0
+
+
+def build_unique_remote_path(
+    device: AndroidDevice,
+    directory: PurePosixPath,
+    filename: str,
+    original_path: str,
+) -> str:
+    """Return an available remote path without overwriting another file."""
+
+    candidate = str(directory / filename)
+
+    if candidate == original_path or not remote_file_exists(
+        device,
+        candidate,
+    ):
+        return candidate
+
+    filename_path = PurePosixPath(filename)
+
+    counter = 1
+
+    while True:
+        candidate = str(
+            directory / (f"{filename_path.stem}_Number_{counter}{filename_path.suffix}")
+        )
+
+        if not remote_file_exists(
+            device,
+            candidate,
+        ):
+            return candidate
+
+        counter += 1

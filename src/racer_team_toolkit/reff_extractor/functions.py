@@ -23,7 +23,6 @@ from racer_team_toolkit.config import (
     DEVICES_REGISTRY,
     LOCAL_DUMP_DIR,
     MAX_FLIGHT_TIME_DIFF,
-    MAX_VIDEO_TIME_DIFF,
     PROJECT_STATUS,
     SUPPORTED_DEVICE_TYPES,
     VIDEO_REMOTE_PATH,
@@ -38,6 +37,10 @@ from racer_team_toolkit.ui.functions import (
     print_extraction_summary,
     print_flight_table,
 )
+
+MIN_REFF_FILE_SIZE_BYTES = 500_000
+MIN_VIDEO_FILE_SIZE_BYTES = 5_000_000
+MAX_VIDEO_AFTER_REFF_SECONDS = 30
 
 
 def extract_reff() -> None:
@@ -179,6 +182,20 @@ def get_file_type(filename: str) -> Optional[str]:
     return None
 
 
+def get_video_device_type(
+    filename: str,
+) -> Optional[str]:
+    """Return the registered device type encoded in a video filename."""
+
+    normalized_filename = filename.upper().replace(" ", "_")
+
+    for device_type in SUPPORTED_DEVICE_TYPES:
+        if normalized_filename.startswith(f"VIDEO_{device_type}_"):
+            return device_type
+
+    return None
+
+
 def get_video_files() -> list[dict]:
     """Return downloaded videos from the local dump directory."""
 
@@ -208,28 +225,36 @@ def get_video_files() -> list[dict]:
     return videos
 
 
-def attach_videos_to_flight(flight_dir: str, flight_files: list[dict], videos: list[dict]) -> int:
-    """Move videos within the configured time limit into a flight directory."""
+def attach_videos_to_flight(
+    flight_dir: str,
+    videos: list[dict],
+) -> int:
+    """Move already-matched videos into a flight directory."""
 
-    flight_times = [file_info["mtime"] for file_info in flight_files]
-    matching_videos = [
-        video
-        for video in videos
-        if min(abs(video["mtime"] - flight_time) for flight_time in flight_times)
-        <= MAX_VIDEO_TIME_DIFF
-    ]
+    moved_count = 0
 
-    for video in matching_videos:
+    for video in videos:
+        destination = os.path.join(
+            flight_dir,
+            video["filename"],
+        )
+
         try:
-            shutil.move(video["path"], os.path.join(flight_dir, video["filename"]))
+            shutil.move(
+                video["path"],
+                destination,
+            )
+
+            moved_count += 1
+
         except OSError as error:
             print(f"[!] Failed to move a screen video: {error}")
 
-    return len(matching_videos)
+    return moved_count
 
 
 def group_files_into_flights() -> list[dict]:
-    """Group compatible REFF files and videos into flight directories."""
+    """Group compatible REFF files and their matched videos into flights."""
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
         return []
@@ -240,8 +265,12 @@ def group_files_into_flights() -> list[dict]:
         return []
 
     files.sort(key=lambda file_info: file_info["mtime"])
+
+    videos = get_video_files()
+
     used_indexes = set()
     used_video_paths = set()
+
     flights = []
     flight_number = 1
 
@@ -249,32 +278,52 @@ def group_files_into_flights() -> list[dict]:
         if index in used_indexes:
             continue
 
-        # Start with the earliest unused file and select compatible files by type.
-        selected_files, selected_indexes = select_flight_files(files, index, used_indexes)
+        selected_files, selected_indexes = select_flight_files(
+            files,
+            index,
+            used_indexes,
+        )
+
         matching_videos = find_matching_videos(
             selected_files,
-            get_video_files(),
+            videos,
+            files,
             used_video_paths,
         )
 
-        # A flight needs either multiple device types or a matching video.
+        # A flight needs either:
+        # - REFF files from multiple device types, or
+        # - one REFF with one or more videos assigned to it.
         if len(selected_files) < 2 and not matching_videos:
             continue
 
-        flight_name, flight_dir = create_flight_directory(flight_number, selected_files[0]["mtime"])
-        move_flight_files(flight_dir, selected_files)
-        attach_videos_to_flight(flight_dir, selected_files, matching_videos)
+        flight_name, flight_dir = create_flight_directory(
+            flight_number,
+            selected_files[0]["mtime"],
+        )
 
-        # Retain the moved filenames for the final Rich table.
+        move_flight_files(
+            flight_dir,
+            selected_files,
+        )
+
+        attach_videos_to_flight(
+            flight_dir,
+            matching_videos,
+        )
+
         used_indexes.update(selected_indexes)
+
         used_video_paths.update(video["path"] for video in matching_videos)
+
         flights.append(
             {
                 "name": flight_name,
-                "files_by_type": group_files_by_type(selected_files),
+                "files_by_type": (group_files_by_type(selected_files)),
                 "videos": [video["filename"] for video in matching_videos],
             }
         )
+
         flight_number += 1
 
     return flights
@@ -283,19 +332,33 @@ def group_files_into_flights() -> list[dict]:
 def find_matching_videos(
     flight_files: list[dict],
     videos: list[dict],
+    all_reff_files: list[dict],
     used_video_paths: Optional[set[str]] = None,
 ) -> list[dict]:
-    """Return videos within the configured time limit of a flight."""
+    """Return videos whose target REFF belongs to this flight."""
 
     used_video_paths = used_video_paths or set()
-    flight_times = [file_info["mtime"] for file_info in flight_files]
-    return [
-        video
-        for video in videos
-        if video["path"] not in used_video_paths
-        if min(abs(video["mtime"] - flight_time) for flight_time in flight_times)
-        <= MAX_VIDEO_TIME_DIFF
-    ]
+
+    flight_reff_paths = {file_info["path"] for file_info in flight_files}
+
+    matching_videos = []
+
+    for video in videos:
+        if video["path"] in used_video_paths:
+            continue
+
+        target_reff = find_target_reff_for_video(
+            video,
+            all_reff_files,
+        )
+
+        if target_reff is None:
+            continue
+
+        if target_reff["path"] in flight_reff_paths:
+            matching_videos.append(video)
+
+    return matching_videos
 
 
 def group_files_by_type(files: list[dict]) -> dict[str, list[str]]:
@@ -601,23 +664,18 @@ def pull_videos(
     progress: Progress,
     task_id: int,
 ) -> int:
-    """Pull only today's screen recordings from one Android device."""
+    """Pull today's valid screen recordings from one Android device."""
 
     video_files = get_remote_files_from_today(
         device,
         VIDEO_REMOTE_PATH,
     )
 
-    video_file_sizes: dict[str, int] = {}
-
-    for remote_file in video_files:
-        file_size = get_remote_file_size(
-            device,
-            remote_file,
-        )
-
-        if file_size is not None:
-            video_file_sizes[remote_file] = file_size
+    video_file_sizes = filter_remote_files_by_size(
+        device,
+        video_files,
+        MIN_VIDEO_FILE_SIZE_BYTES,
+    )
 
     video_files = list(video_file_sizes)
 
@@ -644,13 +702,11 @@ def pull_videos(
         exist_ok=True,
     )
 
-    successful_pulls = 0
-
     for file_number, remote_file in enumerate(
         video_files,
         start=1,
     ):
-        success = pull_remote_file(
+        pull_remote_file(
             device,
             remote_file,
             videos_dir,
@@ -658,9 +714,6 @@ def pull_videos(
             task_id,
             (f"Videos: {get_transfer_verb()} {file_number} of {total_video_files} files"),
         )
-
-        if success:
-            successful_pulls += 1
 
     video_count = move_video_files(
         videos_dir,
@@ -879,23 +932,18 @@ def pull_reff_files(
     progress: Progress,
     task_id: int,
 ) -> int:
-    """Pull only today's REFF files from one Android device."""
+    """Pull today's valid REFF files from one Android device."""
 
     reff_files = get_remote_files_from_today(
         device,
         device.remote_log_path,
     )
 
-    reff_file_sizes: dict[str, int] = {}
-
-    for remote_file in reff_files:
-        file_size = get_remote_file_size(
-            device,
-            remote_file,
-        )
-
-        if file_size is not None:
-            reff_file_sizes[remote_file] = file_size
+    reff_file_sizes = filter_remote_files_by_size(
+        device,
+        reff_files,
+        MIN_REFF_FILE_SIZE_BYTES,
+    )
 
     reff_files = list(reff_file_sizes)
 
@@ -922,13 +970,11 @@ def pull_reff_files(
         exist_ok=True,
     )
 
-    successful_pulls = 0
-
     for file_number, remote_file in enumerate(
         reff_files,
         start=1,
     ):
-        success = pull_remote_file(
+        pull_remote_file(
             device,
             remote_file,
             records_dir,
@@ -936,9 +982,6 @@ def pull_reff_files(
             task_id,
             (f"REFF: {get_transfer_verb()} {file_number} of {total_reff_files} files"),
         )
-
-        if success:
-            successful_pulls += 1
 
     copied_count = move_record_files(
         records_dir,
@@ -948,3 +991,78 @@ def pull_reff_files(
     remove_empty_directories(records_dir)
 
     return copied_count
+
+
+def filter_remote_files_by_size(
+    device: AndroidDevice,
+    remote_files: list[str],
+    minimum_size_bytes: int,
+) -> dict[str, int]:
+    """Return remote files that meet the minimum size requirement."""
+
+    valid_files: dict[str, int] = {}
+
+    for remote_file in remote_files:
+        file_size = get_remote_file_size(
+            device,
+            remote_file,
+        )
+
+        if file_size is None:
+            continue
+
+        if file_size < minimum_size_bytes:
+            console.print(
+                f"[yellow]Skipping {PurePosixPath(remote_file).name}: "
+                f"{file_size / 1_000_000:.1f} MB "
+                f"(minimum {minimum_size_bytes / 1_000_000:.1f} MB)[/yellow]"
+            )
+            continue
+
+        valid_files[remote_file] = file_size
+
+    return valid_files
+
+
+def find_target_reff_for_video(
+    video: dict,
+    reff_files: list[dict],
+) -> dict | None:
+    """Return the REFF file that a video should be associated with."""
+
+    video_device_type = get_video_device_type(video["filename"])
+
+    if video_device_type is None:
+        return None
+
+    same_device_reffs = [reff for reff in reff_files if reff["type"] == video_device_type]
+
+    if not same_device_reffs:
+        return None
+
+    same_device_reffs.sort(key=lambda reff: reff["mtime"])
+
+    video_time = video["mtime"]
+
+    previous_reffs = [reff for reff in same_device_reffs if reff["mtime"] <= video_time]
+
+    if previous_reffs:
+        previous_reff = max(
+            previous_reffs,
+            key=lambda reff: reff["mtime"],
+        )
+
+        seconds_after_reff = video_time - previous_reff["mtime"]
+
+        if 0 <= seconds_after_reff <= MAX_VIDEO_AFTER_REFF_SECONDS:
+            return previous_reff
+
+    following_reffs = [reff for reff in same_device_reffs if reff["mtime"] > video_time]
+
+    if following_reffs:
+        return min(
+            following_reffs,
+            key=lambda reff: reff["mtime"],
+        )
+
+    return None
