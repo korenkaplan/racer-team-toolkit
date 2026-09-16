@@ -160,15 +160,22 @@ def run_java_script(
     return True, combined_output
 
 
-def verify_groundlord_started(output: str) -> bool:
-    """Verify that racer-groundlord.jar was started successfully."""
+def verify_groundlord_started(
+    ssh: paramiko.SSHClient,
+) -> bool:
+    """Verify that racer-groundlord.jar is actually running."""
 
-    required_messages = [
-        "Found /home/pod/run.d/racer-groundlord.jar",
-        "Running as racer groundlord",
-    ]
+    exit_code, output, error = run_remote_command(
+        ssh,
+        "pgrep -af racer-groundlord.jar",
+    )
 
-    return all(message in output for message in required_messages)
+    if exit_code != 0:
+        if error:
+            print(f"[!] Failed to check Racer Groundlord process: {error}")
+        return False
+
+    return "racer-groundlord.jar" in output
 
 
 def restart_jar() -> bool:
@@ -207,7 +214,7 @@ def restart_jar() -> bool:
 
             status.update("Starting Java processes...")
 
-            success, output = run_java_script(ssh)
+            success, _ = run_java_script(ssh)
 
             if not success:
                 return False
@@ -216,7 +223,7 @@ def restart_jar() -> bool:
 
             status.update("Verifying Racer Groundlord...")
 
-            if not verify_groundlord_started(output):
+            if not verify_groundlord_started(ssh):
                 console.print("[red]✗[/red] Racer Groundlord did not start successfully.")
                 return False
 
@@ -381,7 +388,7 @@ def upload_jar() -> bool:
 
             status.update("Starting Java processes...")
 
-            success, output = run_java_script(ssh)
+            success, _ = run_java_script(ssh)
 
             if not success:
                 return False
@@ -390,7 +397,7 @@ def upload_jar() -> bool:
 
             status.update("Verifying Racer Groundlord...")
 
-            if not verify_groundlord_started(output):
+            if not verify_groundlord_started(ssh):
                 console.print("[red]✗[/red] Racer Groundlord did not start successfully.")
                 return False
 
