@@ -86,4 +86,5 @@ __all__ = [
     "DEVICES_REGISTRY",
     "get_connected_serials",
     "run_adb_command",
+    "get_adb_executable",
 ]
