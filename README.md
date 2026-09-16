@@ -5,12 +5,11 @@ Welcome to the **Racer Team Toolkit**! This internal utility bundles everyday Ra
 ---
 
 ## 📚 Table of Contents
-
-1. [Overview & Features](https://www.google.com/search?q=%23-overview--features)
-2. [Project Architecture & Structure](https://www.google.com/search?q=%23-project-architecture--structure)
-3. [Windows Installation & Setup](https://www.google.com/search?q=%23-windows-installation--setup)
-4. [Windows Security Setup](https://www.google.com/search?q=%23-windows-security-setup)
-5. [Development & Contributing](https://www.google.com/search?q=%23-development--contributing)
+1. [Overview & Features](#overview--features)
+2. [Project Architecture & Structure](#project-architecture--structure)
+3. [Windows Installation & Setup](#windows-installation--setup)
+4. [Windows Security Setup](#windows-security-setup)
+5. [Development & Contributing](#development--contributing)
 
 ---
 
