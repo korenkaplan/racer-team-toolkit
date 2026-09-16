@@ -1,5 +1,7 @@
 # 🏁 Racer Team Toolkit
 
+🌐 **Language / שפה:** English | [עברית (Hebrew)](README.he.md)
+
 Welcome to the **Racer Team Toolkit**! This internal utility bundles everyday Racer Team workflows—such as ADB commands, SSH tasks, file transfers, APK installations, and device resets—into one simple terminal application.
 
 ---
