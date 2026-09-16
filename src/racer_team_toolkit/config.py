@@ -57,7 +57,7 @@ LOCAL_DUMP_DIR = str(DESKTOP_PATH / f"Reff_{today_str}")
 VIDEO_REMOTE_PATH = "/sdcard/Eyesatop-Records/Screen-Videos"
 DEVICE_MODEL_RULES = {
     "ISR": ("rcpad",),
-    "RACER": ("rcplus",),
+    "RACER": ("djircplus",),
     "TABLET": ("smx",),
     "BLACK_WIDOW": (),
 }
