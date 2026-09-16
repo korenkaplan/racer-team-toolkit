@@ -1,150 +1,12 @@
-Here is how to set up the **Top Language Switcher** for your repository.
+הסיבה שהכתב יצא הפוך ומבולבל בתמונה היא **בלוק הקוד (````markdown`)** שהיה מסביב לטקסט! כששמים עברית בתוך בלוק קוד ב-GitHub, המערכת מציגה את זה בטקסט אחיד (Monospace) וללא תמיכה ב-BiDi (דו-כיווניות), מה שהופך את המילים והסוגריים מקצה לקצה.
 
-Create a second file named **`README.he.md`** in your repository root, and update the tops of both files as shown below.
-
----
-
-### File 1: `README.md` (English Version)
-
-```markdown
-# 🏁 Racer Team Toolkit
-
-🌐 **Language / שפה:** English | [עברית (Hebrew)](README.he.md)
+הנה הקובץ **`README.he.md`** הנקי בלבד, ללא בלוקי קוד מסביבו, מוכן להעתקה והדבקה ישירה:
 
 ---
 
-Welcome to the **Racer Team Toolkit**! This internal utility bundles everyday Racer Team workflows—such as ADB commands, SSH tasks, file transfers, APK installations, and device resets—into one simple terminal application.
-
----
-
-## 📚 Table of Contents
-1. [Overview & Features](#overview--features)
-2. [Project Architecture & Structure](#project-architecture--structure)
-3. [Windows Installation & Setup](#windows-installation--setup)
-4. [Windows Security Setup](#windows-security-setup)
-5. [Development & Contributing](#development--contributing)
-
----
-
-## Overview & Features
-
-Instead of running separate scripts or command-line sequences manually, the toolkit provides an interactive menu driven by your arrow keys.
-
-| Feature | Key Capabilities |
-| --- | --- |
-| **REFF & Video Extractor** | Pulls `.reff` logs and screen recordings, auto-corrects out-of-sync device timestamps (e.g., fixing `01_08_2024` back to current dates), and groups related files into flight folders on your Desktop. |
-| **APK Installer** | Scans connected devices, matches appropriate APKs from your `Downloads` folder, displays a pre-installation plan, and handles bulk installs. |
-| **JAR Management** | Establishes SSH connections to manage the remote **Racer Groundlord** application (restart service or deploy updated JARs). |
-| **Folders Reset** | Clears accumulated test data (`REFF` files and screen videos) across all connected devices using Quick Reset or target-specific Custom Reset. |
-
----
-
-## Project Architecture & Structure
-
-The codebase is designed so new internal tools can be added without modifying existing features.
-
-### Directory Layout
-
-```text
-racer-team-toolkit/
-├── .github/workflows/   # Automated Windows EXE build workflow
-├── src/racer_team_toolkit/
-│   ├── main.py          # Application entry point & menu router
-│   ├── config.py        # Central device registry & global settings
-│   ├── adb/             # Centralized ADB functions & bundled binaries
-│   ├── ui/              # Shared terminal tables, menus, & spinners
-│   ├── reff_extractor/  # REFF extraction & time correction logic
-│   ├── apk_installer/   # Device-to-APK matching & installation
-│   ├── jar_management/  # Remote SSH operations via Paramiko
-│   └── quick_reset/     # Device cleanup logic
-├── pyproject.toml       # Project configuration & dependencies
-├── README.md            # English documentation
-└── README.he.md         # Hebrew documentation
-
-```
-
-### Adding a New Module
-
-To add a tool named `log_extractor`:
-
-1. Create a folder: `src/racer_team_toolkit/log_extractor/` containing `main.py` (UI flow) and `functions.py` (logic).
-2. Register the device configurations in `config.py` if needed.
-3. Import and route your new module inside `src/racer_team_toolkit/main.py`.
-
----
-
-## Windows Installation & Setup
-
-The production application is packaged as a **standalone Windows executable** (`racer-team-toolkit.exe`) with Python runtime and Android Platform Tools pre-bundled. Users **do not** need to pre-install Python, `uv`, or ADB.
-
-### How to Download
-
-1. Open the **Actions** tab in the GitHub repository.
-2. Select the **Build Windows EXE** workflow.
-3. Click on the latest successful run and scroll to **Artifacts**.
-4. Download `racer-team-toolkit-windows` and extract `racer-team-toolkit.exe`.
-
-### Running the App
-
-Double-click `racer-team-toolkit.exe` to launch the interactive terminal menu:
-
-* **Arrow keys:** Move through options.
-* **Spacebar:** Toggle items in multi-select menus.
-* **Enter:** Confirm selection.
-
----
-
-## Windows Security Setup
-
-Because internal builds are unsigned, Windows Defender or Smart App Control may flag the downloaded `.exe`.
-
-### Unblock the Executable
-
-Run **PowerShell** and execute the unblock command for your download path:
-
-```powershell
-Unblock-File -Path "$HOME\Downloads\racer-team-toolkit.exe"
-
-```
-
-### Smart App Control (If Blocked)
-
-If Smart App Control prevents execution on Windows 11:
-
-1. Open **Windows Security** → **App & browser control** → **Smart App Control settings**.
-2. Toggle settings as permitted by your team’s security guidelines. *(Long-term release plans include code-signing certificates to remove this step).*
-
----
-
-## Development & Contributing
-
-### Local Setup
-
-Requirements: **Python 3.12+** and **`uv`**.
-
-```bash
-# Clone & install dependencies
-git clone <repository-url>
-cd racer-team-toolkit
-uv sync
-
-# Run locally
-uv run racer-team-toolkit
-
-```
-
-```
-
----
-
-### File 2: `README.he.md` (Hebrew Version)
-
-<div dir="rtl">
-
-```markdown
 # 🏁 ערכת הכלים של צוות Racer
 
-🌐 **Language / שפה:** [English (אנגלית)](README.md) | עברית
+🌐 **Language / שפה:** [English (אנגלית)](https://www.google.com/search?q=README.md) | עברית
 
 ---
 
@@ -153,11 +15,12 @@ uv run racer-team-toolkit
 ---
 
 ## 📚 תוכן עניינים
-1. [סקירה ותכונות מרכזיות](#-סקירה-ותכונות-מרכזיות)
-2. [ארכיטקטורת הפרויקט ומבנה](#-ארכיטקטורת-הפרויקט-ומבנה)
-3. [התקנה והפעלה ב-Windows](#-התקנה-והפעלה-ב-windows)
-4. [הגדרות אבטחה ב-Windows](#-הגדרות-אבטחה-ב-windows)
-5. [פיתוח ותרומה לקוד](#-פיתוח-ותרומה-לקוד)
+
+1. [סקירה ותכונות מרכזיות](https://www.google.com/search?q=%23-%D7%A1%D7%A7%D7%99%D7%A8%D7%94-%D7%95%D7%AA%D7%9B%D7%95%D7%A0%D7%95%D7%AA-%D7%9E%D7%A8%D7%9B%D7%96%D7%99%D7%95%D7%AA)
+2. [ארכיטקטורת הפרויקט ומבנה](https://www.google.com/search?q=%23-%D7%90%D7%A8%D7%9B%D7%99%D7%98%D7%A7%D7%98%D7%95%D7%A8%D7%AA-%D7%94%D7%A4%D7%A8%D7%95%D7%99%D7%A7%D7%98-%D7%95%D7%9E%D7%91%D7%A0%D7%94)
+3. [התקנה והפעלה ב-Windows](https://www.google.com/search?q=%23-%D7%94%D7%AA%D7%A7%D7%A0%D7%94-%D7%95%D7%94%D7%A4%D7%A2%D7%9C%D7%94-%D7%91-windows)
+4. [הגדרות אבטחה ב-Windows](https://www.google.com/search?q=%23-%D7%94%D7%92%D7%93%D7%A8%D7%95%D7%AA-%D7%90%D7%91%D7%98%D7%97%D7%94-%D7%91-windows)
+5. [פיתוח ותרומה לקוד](https://www.google.com/search?q=%23-%D7%A4%D7%99%D7%AA%D7%95%D7%97-%D7%95%D7%AA%D7%A8%D7%95%D7%9E%D7%94-%D7%9C%D7%A7%D7%95%D7%93)
 
 ---
 
@@ -265,11 +128,5 @@ uv sync
 
 # הרצה מקומית
 uv run racer-team-toolkit
-
-```
-
-```
-
-</div>
 
 ```
