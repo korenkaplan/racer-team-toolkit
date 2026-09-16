@@ -13,7 +13,7 @@ Welcome to the **Racer Team Toolkit**! This internal utility bundles everyday Ra
 
 ---
 
-## 🚀 Overview & Features
+## Overview & Features
 
 Instead of running separate scripts or command-line sequences manually, the toolkit provides an interactive menu driven by your arrow keys.
 
@@ -26,7 +26,7 @@ Instead of running separate scripts or command-line sequences manually, the tool
 
 ---
 
-## 🏗️ Project Architecture & Structure
+## Project Architecture & Structure
 
 The codebase is designed so new internal tools can be added without modifying existing features.
 
@@ -59,7 +59,7 @@ To add a tool named `log_extractor`:
 
 ---
 
-## 💻 Windows Installation & Setup
+## Windows Installation & Setup
 
 The production application is packaged as a **standalone Windows executable** (`racer-team-toolkit.exe`) with Python runtime and Android Platform Tools pre-bundled. Users **do not** need to pre-install Python, `uv`, or ADB.
 
@@ -80,7 +80,7 @@ Double-click `racer-team-toolkit.exe` to launch the interactive terminal menu:
 
 ---
 
-## 🛡️ Windows Security Setup
+## Windows Security Setup
 
 Because internal builds are unsigned, Windows Defender or Smart App Control may flag the downloaded `.exe`.
 
@@ -102,7 +102,7 @@ If Smart App Control prevents execution on Windows 11:
 
 ---
 
-## 🛠️ Development & Contributing
+## Development & Contributing
 
 ### Local Setup
 
