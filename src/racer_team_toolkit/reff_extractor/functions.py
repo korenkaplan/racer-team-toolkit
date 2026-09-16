@@ -18,9 +18,12 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 
-from racer_team_toolkit.adb import get_adb_executable, get_connected_serials, run_adb_command
+from racer_team_toolkit.adb import (
+    get_adb_executable,
+    get_connected_android_devices,
+    run_adb_command,
+)
 from racer_team_toolkit.config import (
-    DEVICES_REGISTRY,
     LOCAL_DUMP_DIR,
     MAX_FLIGHT_TIME_DIFF,
     PROJECT_STATUS,
@@ -60,13 +63,11 @@ def run_extraction(*, include_videos: bool) -> None:
 
     create_output_directory()
 
-    connected_serials = get_connected_serials()
+    connected_devices = get_connected_android_devices()
 
-    if not connected_serials:
-        print("[-] No Devices Are Connected. Please connect a device and try again.")
+    if not connected_devices:
+        print("[-] No Supported Devices Are Connected. Please connect a device and try again.")
         return
-
-    connected_devices = get_connected_devices(connected_serials)
 
     # Validate device clocks before importing anything.
     devices_to_process = validate_device_times_before_extraction(connected_devices)
@@ -107,12 +108,6 @@ def run_extraction(*, include_videos: bool) -> None:
         include_videos,
         connected_device_types,
     )
-
-
-def get_connected_devices(connected_serials: set[str]) -> list[AndroidDevice]:
-    """Return registered devices that are currently connected."""
-
-    return [device for device in DEVICES_REGISTRY if device.serial in connected_serials]
 
 
 def print_connected_devices(devices: list[AndroidDevice]) -> None:
@@ -159,15 +154,6 @@ def create_output_directory() -> None:
     """Create the local extraction directory if it does not exist."""
 
     os.makedirs(LOCAL_DUMP_DIR, exist_ok=True)
-
-
-def get_connected_devices_and_print_info() -> list[AndroidDevice]:
-    """Return registered connected devices and print their status."""
-
-    connected_serials = get_connected_serials()
-    connected_devices = get_connected_devices(connected_serials)
-    print_connected_devices(connected_devices)
-    return connected_devices
 
 
 def get_file_type(filename: str) -> Optional[str]:

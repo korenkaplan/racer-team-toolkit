@@ -7,7 +7,14 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from racer_team_toolkit.config import DEVICES_REGISTRY, AndroidDevice
+from racer_team_toolkit.adb.device_detection import (
+    DeviceType,
+    classify_device,
+)
+from racer_team_toolkit.config import (
+    DEVICE_TYPE_CONFIGS,
+    AndroidDevice,
+)
 
 
 def run_adb_command(
@@ -48,12 +55,31 @@ def get_connected_serials() -> set[str]:
 
 
 def get_connected_android_devices() -> list[AndroidDevice]:
-    """Return a list of connected AndroidDevice instances based on the registry."""
+    """Detect, classify, and configure connected Android devices."""
 
-    connected_serials = get_connected_serials()
-    connected_devices = [
-        device for device in DEVICES_REGISTRY if device.serial in connected_serials
-    ]
+    connected_devices = []
+
+    for serial in get_connected_serials():
+        model = get_device_model(serial)
+        device_type = classify_device(model)
+
+        if device_type == DeviceType.UNKNOWN:
+            print(f"[!] Unsupported Android device: {model or 'Unknown model'} (Serial: {serial})")
+            continue
+
+        config = DEVICE_TYPE_CONFIGS[device_type.value]
+
+        connected_devices.append(
+            AndroidDevice(
+                name=config.name,
+                serial=serial,
+                remote_log_path=config.remote_log_path,
+                file_prefix=config.file_prefix,
+                apk_name_pattern=config.apk_name_pattern,
+                package_name=config.package_name,
+                permissions=config.permissions,
+            )
+        )
 
     return connected_devices
 
@@ -81,10 +107,29 @@ def get_adb_executable() -> str:
     )
 
 
+def get_device_model(serial: str) -> str:
+    """Return the Android model of a connected device."""
+
+    result = run_adb_command(
+        [
+            "-s",
+            serial,
+            "shell",
+            "getprop",
+            "ro.product.model",
+        ]
+    )
+
+    if result.returncode != 0:
+        return ""
+
+    return result.stdout.strip()
+
+
 __all__ = [
     "AndroidDevice",
-    "DEVICES_REGISTRY",
     "get_connected_serials",
     "run_adb_command",
     "get_adb_executable",
+    "get_device_model",
 ]

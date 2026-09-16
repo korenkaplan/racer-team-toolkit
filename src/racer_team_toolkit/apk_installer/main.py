@@ -5,7 +5,7 @@ from pathlib import Path
 from rich.table import Table
 from rich.text import Text
 
-from racer_team_toolkit.adb.functions import get_connected_serials
+from racer_team_toolkit.adb.functions import get_connected_android_devices
 from racer_team_toolkit.apk_installer.functions import (
     InstallationPlan,
     InstallationResult,
@@ -16,7 +16,6 @@ from racer_team_toolkit.apk_installer.functions import (
 from racer_team_toolkit.config import (
     APK_INSTALLER_APPROVAL_CHOICES,
     APK_INSTALLER_HEADER,
-    DEVICES_REGISTRY,
 )
 from racer_team_toolkit.ui.functions import (
     console,
@@ -32,9 +31,7 @@ def main() -> None:
     """Run folder selection, approval, installation, and result reporting."""
 
     print_header("APK Installer!")
-    connected_devices = [
-        device for device in DEVICES_REGISTRY if device.serial in get_connected_serials()
-    ]
+    connected_devices = get_connected_android_devices()
 
     if not connected_devices:
         print_error("No Devices Are Connected. Please connect a device and try again.")
