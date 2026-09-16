@@ -78,6 +78,8 @@ jobs:
 
           uv run pyinstaller `
             --onefile `
+            --noconfirm `
+            --clean `
             --name racer-team-toolkit `
             --icon "assets/racer-team-toolkit.ico" `
             --add-data ".env;." `
@@ -89,12 +91,15 @@ jobs:
       - name: Verify executable exists
         shell: pwsh
         run: |
-          if (-not (Test-Path "dist\racer-team-toolkit.exe")) {
-              Write-Error "Windows executable was not created"
+          $exePath = "dist\racer-team-toolkit.exe"
+
+          if (-not (Test-Path $exePath)) {
+              Write-Error "Windows executable was not created at $exePath"
               exit 1
           }
 
-          Write-Host "Windows executable created successfully."
+          Write-Host "Windows executable created successfully:"
+          Write-Host $exePath
 
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
