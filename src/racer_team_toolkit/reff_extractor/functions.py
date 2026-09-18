@@ -43,7 +43,9 @@ from racer_team_toolkit.ui.functions import (
 
 MIN_REFF_FILE_SIZE_BYTES = 500_000
 MIN_VIDEO_FILE_SIZE_BYTES = 5_000_000
-MAX_VIDEO_AFTER_REFF_SECONDS = 30
+
+MAX_VIDEO_AFTER_REFF_SECONDS = 60
+MAX_REFF_AFTER_VIDEO_SECONDS = 8 * 60
 
 
 def extract_reff() -> None:
@@ -62,6 +64,8 @@ def run_extraction(*, include_videos: bool) -> None:
     """Run the shared extraction workflow for one menu option."""
 
     create_output_directory()
+
+    next_flight_number = get_next_flight_number()
 
     connected_devices = get_connected_android_devices()
 
@@ -98,7 +102,7 @@ def run_extraction(*, include_videos: bool) -> None:
         processed_any = True
 
     if processed_any:
-        flights = group_files_into_flights()
+        flights = group_files_into_flights(starting_flight_number=next_flight_number)
 
     print_extraction_result(
         processed_any,
@@ -239,7 +243,9 @@ def attach_videos_to_flight(
     return moved_count
 
 
-def group_files_into_flights() -> list[dict]:
+def group_files_into_flights(
+    starting_flight_number: int,
+) -> list[dict]:
     """Group compatible REFF files and their matched videos into flights."""
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
@@ -258,7 +264,7 @@ def group_files_into_flights() -> list[dict]:
     used_video_paths = set()
 
     flights = []
-    flight_number = 1
+    flight_number = starting_flight_number
 
     for index, base_file in enumerate(files):
         if index in used_indexes:
@@ -473,6 +479,34 @@ def flight_is_within_time_limit(flight_files: list[dict]) -> bool:
 
     timestamps = [file_info["mtime"] for file_info in flight_files]
     return max(timestamps) - min(timestamps) <= MAX_FLIGHT_TIME_DIFF
+
+
+def get_next_flight_number() -> int:
+    """Return the next flight number based on existing flight items."""
+
+    if not os.path.isdir(LOCAL_DUMP_DIR):
+        return 1
+
+    flight_count = 0
+
+    for name in os.listdir(LOCAL_DUMP_DIR):
+        path = os.path.join(LOCAL_DUMP_DIR, name)
+
+        if os.path.isdir(path) and name.startswith("Flight_"):
+            flight_count += 1
+            continue
+
+        if not os.path.isfile(path):
+            continue
+
+        if name.upper().startswith("VIDEO_"):
+            flight_count += 1
+            continue
+
+        if name.lower().endswith(".reff") and get_file_type(name) is not None:
+            flight_count += 1
+
+    return flight_count + 1
 
 
 def create_flight_directory(flight_number: int, first_file_mtime: float) -> tuple[str, str]:
