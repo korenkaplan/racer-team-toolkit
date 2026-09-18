@@ -31,7 +31,4 @@ def main() -> None:
         print_header(REFF_EXTRACTOR_CHOICES[1])
         extract_reff_and_videos()
 
-    elif user_choice == REFF_EXTRACTOR_CHOICES[2]:
-        return
-
     pause("Press Enter to return to the main menu...")
