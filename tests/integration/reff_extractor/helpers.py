@@ -1,15 +1,16 @@
 import os
 import shutil
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
 from racer_team_toolkit.config import AndroidDevice
 
 from tests.integration.reff_extractor.config import (
-    TEST_REMOTE_REFF_PATH,
-    TEST_REMOTE_ROOT,
-    TEST_REMOTE_VIDEO_PATH,
+    ISR_SERIAL,
+    MANUAL_OUTPUT_ROOT,
+    REAL_REMOTE_REFF_PATH,
+    REAL_REMOTE_VIDEO_PATH,
+    TABLET_SERIAL,
 )
 
 
@@ -54,133 +55,211 @@ def connected_serials() -> set[str]:
     return serials
 
 
-def clear_remote_test_area(serial: str) -> None:
-    """Delete only the isolated integration-test directory."""
+def require_fixed_devices() -> None:
+    """Fail when either fixed physical Android test device is unavailable."""
 
-    run_adb(
-        serial,
-        "shell",
-        "rm",
-        "-rf",
-        TEST_REMOTE_ROOT,
-    )
+    serials = connected_serials()
+    required = {
+        ISR_SERIAL,
+        TABLET_SERIAL,
+    }
+    missing = required - serials
 
-
-def prepare_remote_test_area(serial: str) -> None:
-    """Create isolated REFF/video directories for integration tests."""
-
-    run_adb(
-        serial,
-        "shell",
-        "mkdir",
-        "-p",
-        TEST_REMOTE_REFF_PATH,
-        TEST_REMOTE_VIDEO_PATH,
-    )
-
-
-def copy_with_timestamp(
-    source: Path,
-    destination: Path,
-    timestamp: float,
-) -> Path:
-    """Copy a test asset and assign an exact modification time."""
-
-    destination.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    shutil.copy2(
-        source,
-        destination,
-    )
-
-    os.utime(
-        destination,
-        (
-            timestamp,
-            timestamp,
-        ),
-    )
-
-    return destination
-
-
-def create_local_test_file(
-    root: Path,
-    source: Path,
-    filename: str,
-    timestamp: float,
-) -> Path:
-    """Create one local grouping fixture from a master source file."""
-
-    return copy_with_timestamp(
-        source,
-        root / filename,
-        timestamp,
-    )
-
-
-def push_named_file(
-    serial: str,
-    source: Path,
-    remote_directory: str,
-    remote_filename: str,
-    timestamp: float,
-    staging_directory: Path,
-) -> str:
-    """Push one master test file under a controlled name and timestamp."""
-
-    local_file = copy_with_timestamp(
-        source,
-        staging_directory / serial / remote_filename,
-        timestamp,
-    )
-
-    prepare_remote_test_area(serial)
-
-    remote_path = f"{remote_directory}/{remote_filename}"
-
-    run_adb(
-        serial,
-        "push",
-        "-a",
-        str(local_file),
-        remote_path,
-    )
-
-    return remote_path
+    if missing:
+        raise RuntimeError(
+            "Required ADB test devices are not connected: "
+            + ", ".join(sorted(missing))
+        )
 
 
 def build_test_device(
     serial: str,
     device_type: str,
 ) -> AndroidDevice:
-    """Build an AndroidDevice that reads only from isolated test paths."""
+    """Build a logical device that uses the real application Android paths."""
 
     return AndroidDevice(
         name=f"{device_type} Test Device",
         serial=serial,
-        remote_log_path=TEST_REMOTE_REFF_PATH,
+        remote_log_path=REAL_REMOTE_REFF_PATH,
         file_prefix=device_type,
         apk_name_pattern="",
         package_name="",
     )
 
 
-def timestamp_today(
-    hour: int,
-    minute: int,
-    second: int,
-) -> float:
-    """Return today's local timestamp at the supplied clock time."""
+def push_file_direct(
+    serial: str,
+    source: Path,
+    remote_path: str,
+    timestamp: float,
+) -> str:
+    """Push a master fixture directly to its real Android path and set mtime."""
 
-    now = datetime.now()
+    run_adb(
+        serial,
+        "push",
+        "-a",
+        str(source),
+        remote_path,
+    )
 
-    return now.replace(
-        hour=hour,
-        minute=minute,
-        second=second,
-        microsecond=0,
-    ).timestamp()
+    run_adb(
+        serial,
+        "shell",
+        "touch",
+        "-m",
+        "-d",
+        f"@{int(timestamp)}",
+        remote_path,
+    )
+
+    return remote_path
+
+
+def remove_remote_file(
+    serial: str,
+    remote_path: str,
+) -> None:
+    """Delete one exact test-created Android file."""
+
+    run_adb(
+        serial,
+        "shell",
+        "rm",
+        "-f",
+        remote_path,
+    )
+
+
+def remove_remote_files(
+    serial: str,
+    remote_paths: list[str],
+) -> None:
+    """Delete exact test-created Android files without touching unrelated files."""
+
+    for remote_path in remote_paths:
+        remove_remote_file(
+            serial,
+            remote_path,
+        )
+
+
+def ensure_real_remote_directories() -> None:
+    """Ensure the real application directories exist on both fixed devices."""
+
+    for serial in (
+        ISR_SERIAL,
+        TABLET_SERIAL,
+    ):
+        run_adb(
+            serial,
+            "shell",
+            "mkdir",
+            "-p",
+            REAL_REMOTE_REFF_PATH,
+            REAL_REMOTE_VIDEO_PATH,
+        )
+
+
+def recreate_case_directory(
+    case_name: str,
+) -> Path:
+    """Create a clean visible Desktop directory for one integration case."""
+
+    case_dir = MANUAL_OUTPUT_ROOT / case_name
+
+    if case_dir.exists():
+        shutil.rmtree(case_dir)
+
+    case_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    return case_dir
+
+
+def write_case_description(
+    case_dir: Path,
+    *,
+    title: str,
+    purpose: str,
+    setup: str,
+    expected: str,
+) -> None:
+    """Write a human-readable explanation beside every visible test result."""
+
+    text = (
+        f"TEST: {title}\n"
+        f"{'=' * 72}\n\n"
+        f"PURPOSE\n{purpose.strip()}\n\n"
+        f"TEST SETUP\n{setup.strip()}\n\n"
+        f"EXPECTED RESULT\n{expected.strip()}\n"
+    )
+
+    (case_dir / "TEST_DESCRIPTION.txt").write_text(
+        text,
+        encoding="utf-8",
+    )
+
+
+def write_actual_tree(
+    case_dir: Path,
+    dump_dir: Path,
+) -> None:
+    """Write the actual resulting dump tree for easy manual comparison."""
+
+    lines = [
+        "ACTUAL RESULT",
+        "=" * 72,
+        "",
+    ]
+
+    if not dump_dir.exists():
+        lines.append("<dump folder does not exist>")
+    else:
+        lines.append(dump_dir.name + "/")
+
+        for path in sorted(
+            dump_dir.rglob("*"),
+            key=lambda item: str(item.relative_to(dump_dir)),
+        ):
+            relative = path.relative_to(dump_dir)
+            depth = len(relative.parts) - 1
+            prefix = "    " * (depth + 1)
+            suffix = "/" if path.is_dir() else ""
+            lines.append(
+                f"{prefix}{relative.name}{suffix}"
+            )
+
+    (case_dir / "ACTUAL_RESULT.txt").write_text(
+        "\n".join(lines) + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_status(
+    case_dir: Path,
+    status: str,
+    details: str = "",
+) -> None:
+    """Persist automated PASS/FAIL information in the visible case folder."""
+
+    text = f"AUTOMATED RESULT: {status}\n"
+
+    if details:
+        text += f"\n{details.strip()}\n"
+
+    (case_dir / "AUTOMATED_RESULT.txt").write_text(
+        text,
+        encoding="utf-8",
+    )
+
+
+def real_reff_path(filename: str) -> str:
+    return f"{REAL_REMOTE_REFF_PATH}/{filename}"
+
+
+def real_video_path(filename: str) -> str:
+    return f"{REAL_REMOTE_VIDEO_PATH}/{filename}"
