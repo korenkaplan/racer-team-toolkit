@@ -5,6 +5,7 @@ import pytest
 from tests.integration.reff_extractor.config import (
     ISR_SERIAL,
     RUN_ENV_VAR,
+    TIME_ADJUSTMENT_RUN_ENV_VAR,
     SOURCE_REFF_1,
     SOURCE_REFF_2,
     SOURCE_VIDEO,
@@ -20,9 +21,13 @@ from tests.integration.reff_extractor.helpers import (
 def require_explicit_integration_test_opt_in() -> None:
     """Keep physical-device tests out of normal pytest runs."""
 
-    if os.getenv(RUN_ENV_VAR) != "1":
+    normal_tests_enabled = os.getenv(RUN_ENV_VAR) == "1"
+    time_adjustment_enabled = os.getenv(TIME_ADJUSTMENT_RUN_ENV_VAR) == "1"
+
+    if not normal_tests_enabled and not time_adjustment_enabled:
         pytest.skip(
-            f"Set {RUN_ENV_VAR}=1 to run the REFF integration suite.",
+            f"Set {RUN_ENV_VAR}=1 for normal REFF tests or "
+            f"{TIME_ADJUSTMENT_RUN_ENV_VAR}=1 for Tablet time-adjustment tests.",
         )
 
     required_files = [
