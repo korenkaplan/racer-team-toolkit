@@ -486,50 +486,101 @@ def get_latest_flight_end_time(
     return max(reff.mtime for reff in flight.reff_files)
 
 
+def get_video_time_match(
+    video_time: float,
+    reference_time: float,
+) -> tuple[int, float] | None:
+    """Return the time-match priority and difference for a video and REFF time."""
+
+    video_after_reference = video_time - reference_time
+
+    if 0 <= video_after_reference <= MAX_VIDEO_AFTER_REFF_SECONDS:
+        return (
+            1,
+            video_after_reference,
+        )
+
+    reference_after_video = reference_time - video_time
+
+    if 0 < reference_after_video <= MAX_REFF_AFTER_VIDEO_SECONDS:
+        return (
+            2,
+            reference_after_video,
+        )
+
+    return None
+
+
 def find_best_existing_flight_for_video(
     video: FlightFile,
     flights: list[Flight],
 ) -> Flight | None:
-    """Return the best existing flight for a video based on end times."""
+    """Return the best flight, preferring a matching REFF from the same device."""
 
-    priority_one_matches: list[tuple[float, Flight]] = []
-    priority_two_matches: list[tuple[float, Flight]] = []
+    same_device_matches: list[tuple[int, float, Flight]] = []
+    fallback_matches: list[tuple[int, float, Flight]] = []
 
     for flight in flights:
+        same_device_reffs = [
+            reff
+            for reff in flight.reff_files
+            if reff.device_type == video.device_type
+        ]
+
+        if same_device_reffs:
+            same_device_end = max(reff.mtime for reff in same_device_reffs)
+
+            same_device_match = get_video_time_match(
+                video.mtime,
+                same_device_end,
+            )
+
+            if same_device_match is not None:
+                priority, time_diff = same_device_match
+
+                same_device_matches.append(
+                    (
+                        priority,
+                        time_diff,
+                        flight,
+                    )
+                )
+
         flight_end = get_latest_flight_end_time(flight)
 
-        video_after_flight = video.mtime - flight_end
+        fallback_match = get_video_time_match(
+            video.mtime,
+            flight_end,
+        )
 
-        if 0 <= video_after_flight <= MAX_VIDEO_AFTER_REFF_SECONDS:
-            priority_one_matches.append(
+        if fallback_match is not None:
+            priority, time_diff = fallback_match
+
+            fallback_matches.append(
                 (
-                    video_after_flight,
-                    flight,
-                )
-            )
-            continue
-
-        flight_after_video = flight_end - video.mtime
-
-        if 0 < flight_after_video <= MAX_REFF_AFTER_VIDEO_SECONDS:
-            priority_two_matches.append(
-                (
-                    flight_after_video,
+                    priority,
+                    time_diff,
                     flight,
                 )
             )
 
-    if priority_one_matches:
+    if same_device_matches:
         return min(
-            priority_one_matches,
-            key=lambda match: match[0],
-        )[1]
+            same_device_matches,
+            key=lambda match: (
+                match[0],
+                match[1],
+            ),
+        )[2]
 
-    if priority_two_matches:
+    if fallback_matches:
         return min(
-            priority_two_matches,
-            key=lambda match: match[0],
-        )[1]
+            fallback_matches,
+            key=lambda match: (
+                match[0],
+                match[1],
+            ),
+        )[2]
 
     return None
 
@@ -547,44 +598,49 @@ def find_best_standalone_reff_for_video(
     video: FlightFile,
     standalone_reffs: list[FlightFile],
 ) -> FlightFile | None:
-    """Return the best standalone REFF for a video based on end times."""
+    """Return the best standalone REFF, preferring the video's device type."""
 
-    priority_one_matches: list[tuple[float, FlightFile]] = []
-    priority_two_matches: list[tuple[float, FlightFile]] = []
+    same_device_matches: list[tuple[int, float, FlightFile]] = []
+    fallback_matches: list[tuple[int, float, FlightFile]] = []
 
     for reff in standalone_reffs:
-        video_after_reff = video.mtime - reff.mtime
+        time_match = get_video_time_match(
+            video.mtime,
+            reff.mtime,
+        )
 
-        if 0 <= video_after_reff <= MAX_VIDEO_AFTER_REFF_SECONDS:
-            priority_one_matches.append(
-                (
-                    video_after_reff,
-                    reff,
-                )
-            )
+        if time_match is None:
             continue
 
-        reff_after_video = reff.mtime - video.mtime
+        priority, time_diff = time_match
+        match = (
+            priority,
+            time_diff,
+            reff,
+        )
 
-        if 0 < reff_after_video <= MAX_REFF_AFTER_VIDEO_SECONDS:
-            priority_two_matches.append(
-                (
-                    reff_after_video,
-                    reff,
-                )
-            )
+        if reff.device_type == video.device_type:
+            same_device_matches.append(match)
+        else:
+            fallback_matches.append(match)
 
-    if priority_one_matches:
+    if same_device_matches:
         return min(
-            priority_one_matches,
-            key=lambda match: match[0],
-        )[1]
+            same_device_matches,
+            key=lambda match: (
+                match[0],
+                match[1],
+            ),
+        )[2]
 
-    if priority_two_matches:
+    if fallback_matches:
         return min(
-            priority_two_matches,
-            key=lambda match: match[0],
-        )[1]
+            fallback_matches,
+            key=lambda match: (
+                match[0],
+                match[1],
+            ),
+        )[2]
 
     return None
 
