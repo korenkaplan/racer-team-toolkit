@@ -20,7 +20,6 @@ from tests.integration.reff_extractor.config import (
     REAL_REMOTE_REFF_PATH,
     REAL_REMOTE_VIDEO_PATH,
     SOURCE_REFF_1,
-    SOURCE_REFF_2,
     SOURCE_VIDEO,
     TABLET_SERIAL,
     TIME_ADJUSTMENT_RUN_ENV_VAR,
@@ -40,6 +39,7 @@ from tests.integration.reff_extractor.helpers import (
     write_actual_tree,
     write_case_description,
     write_status,
+    write_warnings,
 )
 
 pytestmark = [
@@ -415,7 +415,7 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
 def test_time_adjustment_collision_uses_number_suffix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Collision rename creates _Number_1 and leaves a visible DUMP."""
+    """Video collision rename creates _Number_1 without overwriting."""
 
     ensure_real_remote_directories()
 
@@ -441,14 +441,18 @@ def test_time_adjustment_collision_uses_number_suffix(
         0,
     ).timestamp()
 
-    old_path = real_reff_path(
-        "RTT_TEST_TIME_COLLISION.reff"
+    old_video_name = "ScreenRec_2024-08-01_08-28.mp4"
+    old_video_path = real_video_path(
+        old_video_name
     )
 
-    corrected_name = build_corrected_reff_filename(
+    corrected_name = build_corrected_video_filename(
+        old_video_name,
         corrected_timestamp,
     )
-    corrected_path = real_reff_path(
+    assert corrected_name is not None
+
+    corrected_path = real_video_path(
         corrected_name
     )
 
@@ -460,21 +464,21 @@ def test_time_adjustment_collision_uses_number_suffix(
         "_Number_1"
         f"{corrected_name_path.suffix}"
     )
-    numbered_path = real_reff_path(
+    numbered_path = real_video_path(
         numbered_name
     )
 
     cleanup_paths = [
-        old_path,
+        old_video_path,
         corrected_path,
         numbered_path,
     ]
 
-    # Remove only the clearly test-owned input path before setup.
+    # Remove only the clearly test-owned wrong-time input before setup.
     remove_remote_files(
         TABLET_SERIAL,
         [
-            old_path,
+            old_video_path,
         ],
     )
 
@@ -493,50 +497,54 @@ def test_time_adjustment_collision_uses_number_suffix(
 
     with visible_time_case(
         "Case_02_Collision_Number_1",
-        title="Time Adjustment filename collision",
+        title="Time Adjustment video filename collision",
         purpose=(
-            "Verify that Time Adjustment never overwrites an existing corrected "
-            "REFF filename. The corrected file must become _Number_1. This case "
-            "also creates a visible DUMP folder so the result can be inspected."
+            "Verify that two Tablet screen recordings may resolve to the same "
+            "corrected filename without one overwriting the other. The second "
+            "video must receive the _Number_1 suffix."
         ),
         setup=(
-            "An existing REFF already uses the corrected target filename.\n"
-            "A second REFF is corrected to the same timestamp.\n"
-            f"Existing name: {corrected_name}\n"
-            f"Expected collision name: {numbered_name}"
+            "An existing video already uses the corrected target filename.\n"
+            "A second video is corrected to the same timestamp.\n"
+            f"Existing video: {corrected_name}\n"
+            f"Expected collision video: {numbered_name}"
         ),
         expected=(
             "DUMP/ exists.\n"
-            "Both corrected REFF files are visible in DUMP/.\n"
-            f"TABLET_{corrected_name}\n"
-            f"TABLET_{numbered_name}\n"
-            "No file is overwritten."
+            "Both videos are visible as standalone files in DUMP/.\n"
+            f"VIDEO_TABLET_{corrected_name}\n"
+            f"VIDEO_TABLET_{numbered_name}\n"
+            "No video is overwritten.\n"
+            "No flight folder is created because this case contains videos only."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(
             monkeypatch,
             dump_dir,
         )
 
         try:
+            # First video already occupies the corrected target name.
             push_file_direct(
                 TABLET_SERIAL,
-                SOURCE_REFF_1,
-                old_path,
-                wrong_timestamp,
-            )
-            push_file_direct(
-                TABLET_SERIAL,
-                SOURCE_REFF_2,
+                SOURCE_VIDEO,
                 corrected_path,
                 corrected_timestamp,
+            )
+
+            # Second video starts with the wrong date/time name.
+            push_file_direct(
+                TABLET_SERIAL,
+                SOURCE_VIDEO,
+                old_video_path,
+                wrong_timestamp,
             )
 
             corrected_count = apply_file_time_corrections(
                 tablet,
                 [
                     FileTimeCorrection(
-                        file_path=old_path,
+                        file_path=old_video_path,
                         current_timestamp=int(
                             wrong_timestamp
                         ),
@@ -567,20 +575,44 @@ def test_time_adjustment_collision_uses_number_suffix(
 
             process_selected_tablet_files(
                 monkeypatch,
-                reff_files=[
+                video_files=[
                     corrected_path,
                     numbered_path,
                 ],
             )
 
-            assert (
+            expected_original = (
                 dump_dir
-                / f"TABLET_{corrected_name}"
-            ).is_file()
-            assert (
+                / f"VIDEO_TABLET_{corrected_name}"
+            )
+            expected_numbered = (
                 dump_dir
-                / f"TABLET_{numbered_name}"
-            ).is_file()
+                / f"VIDEO_TABLET_{numbered_name}"
+            )
+
+            assert expected_original.is_file()
+            assert expected_numbered.is_file()
+
+            # This collision test contains no REFFs, so both videos stay standalone.
+            reff_result = grouping.group_files_into_flights(
+                starting_flight_number=1,
+            )
+            video_result = grouping.group_videos_into_flights(
+                flights=reff_result.flights,
+                standalone_reffs=reff_result.standalone_reffs,
+                starting_flight_number=reff_result.next_flight_number,
+            )
+
+            assert video_result.flights == []
+            assert len(video_result.warnings) == 2
+
+            write_warnings(
+                case_dir,
+                video_result.warnings,
+            )
+
+            assert expected_original.is_file()
+            assert expected_numbered.is_file()
         finally:
             remove_remote_files(
                 TABLET_SERIAL,
