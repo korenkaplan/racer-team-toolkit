@@ -7,6 +7,8 @@ from rich.panel import Panel
 from rich.status import Status
 from rich.table import Table
 
+from racer_team_toolkit.reff_extractor.grouping_dataclasses import Flight
+
 console = Console()
 T = TypeVar("T")
 
@@ -72,12 +74,22 @@ def pause(message: str = "Press Enter to return...") -> None:
 
 
 def print_flight_table(
-    flights: list[dict], device_types: tuple[str, ...], *, include_videos: bool = True
+    flights: list[Flight],
+    device_types: tuple[str, ...],
+    *,
+    include_videos: bool = True,
 ) -> None:
     """Render grouped REFF files and videos in a Rich table."""
 
-    table = Table(title="Flights", show_lines=True)
-    table.add_column("Flight", style="bold cyan")
+    table = Table(
+        title="Flights",
+        show_lines=True,
+    )
+
+    table.add_column(
+        "Flight",
+        style="bold cyan",
+    )
 
     for device_type in device_types:
         table.add_column(device_type)
@@ -86,16 +98,20 @@ def print_flight_table(
         table.add_column("Screen Videos")
 
     for flight in flights:
-        row = [flight["name"]]
-        files_by_type = flight["files_by_type"]
+        row: list[str] = [flight.name]
 
         for device_type in device_types:
-            filenames = files_by_type.get(device_type, [])
+            filenames = [
+                reff.filename for reff in flight.reff_files if reff.device_type.value == device_type
+            ]
+
             row.append("\n".join(filenames) if filenames else "-")
 
         if include_videos:
-            videos = flight.get("videos", [])
-            row.append("\n".join(videos) if videos else "-")
+            video_names = [video.filename for video in flight.videos]
+
+            row.append("\n".join(video_names) if video_names else "-")
+
         table.add_row(*row)
 
     console.print(table)

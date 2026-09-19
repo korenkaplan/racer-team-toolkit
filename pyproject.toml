@@ -35,10 +35,19 @@ target-version = "py39"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+
+include = [
+    "src",
+    "tests",
+]
 [dependency-groups]
 dev = [
     "pre-commit>=4.0.0",
     "pyinstaller>=6.22.2",
+    "pyright>=1.1.414",
     "pytest>=8.4.2",
     "ruff>=0.16.5",
 ]

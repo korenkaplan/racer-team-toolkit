@@ -6,13 +6,13 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Optional
 
 from rich.progress import (
     BarColumn,
     DownloadColumn,
     Progress,
     SpinnerColumn,
+    TaskID,
     TaskProgressColumn,
     TextColumn,
     TransferSpeedColumn,
@@ -23,13 +23,20 @@ from racer_team_toolkit.adb import (
     get_connected_android_devices,
     run_adb_command,
 )
+from racer_team_toolkit.adb.device_detection import DeviceType
 from racer_team_toolkit.config import (
     LOCAL_DUMP_DIR,
     MAX_FLIGHT_TIME_DIFF,
     PROJECT_STATUS,
     SUPPORTED_DEVICE_TYPES,
+    VIDEO_FILE_PREFIX,
     VIDEO_REMOTE_PATH,
     AndroidDevice,
+)
+from racer_team_toolkit.reff_extractor.grouping_dataclasses import (
+    Flight,
+    FlightFile,
+    FlightFileType,
 )
 from racer_team_toolkit.reff_extractor.time_adjustment_functions import (
     get_remote_files_from_today,
@@ -73,7 +80,6 @@ def run_extraction(*, include_videos: bool) -> None:
         print("[-] No Supported Devices Are Connected. Please connect a device and try again.")
         return
 
-    # Validate device clocks before importing anything.
     devices_to_process = validate_device_times_before_extraction(connected_devices)
 
     if not devices_to_process:
@@ -84,12 +90,14 @@ def run_extraction(*, include_videos: bool) -> None:
 
     print_connected_devices(devices_to_process)
 
-    connected_device_types = tuple(device.file_prefix for device in devices_to_process)
+    connected_device_types: tuple[str, ...] = tuple(
+        device.file_prefix for device in devices_to_process
+    )
 
     processed_any = False
     copied_reff_files = 0
     copied_videos = 0
-    flights = []
+    flights: list[Flight] = []
 
     for device in devices_to_process:
         result = process_device(
@@ -102,7 +110,9 @@ def run_extraction(*, include_videos: bool) -> None:
         processed_any = True
 
     if processed_any:
-        flights = group_files_into_flights(starting_flight_number=next_flight_number)
+        flights = group_files_into_flights(
+            starting_flight_number=next_flight_number,
+        )
 
     print_extraction_result(
         processed_any,
@@ -124,7 +134,7 @@ def print_connected_devices(devices: list[AndroidDevice]) -> None:
 
 def print_extraction_result(
     processed_any: bool,
-    flights: list[dict],
+    flights: list[Flight],
     copied_reff_files: int,
     copied_videos: int,
     include_videos: bool,
@@ -136,9 +146,15 @@ def print_extraction_result(
 
     if processed_any:
         console.print("[bold green]✓ Extraction completed successfully[/bold green]")
+
         if flights:
-            print_flight_table(flights, device_types, include_videos=include_videos)
-        summary = {
+            print_flight_table(
+                flights,
+                device_types,
+                include_videos=include_videos,
+            )
+
+        summary: dict[str, int] = {
             "Flight folders created": len(flights),
             f"REFF files {get_transfer_verb().lower()}": copied_reff_files,
         }
@@ -147,7 +163,9 @@ def print_extraction_result(
             summary[f"Screen videos {get_transfer_verb().lower()}"] = copied_videos
 
         print_extraction_summary(summary)
+
         print(f"\n[V] All files are located at:\n    {os.path.abspath(LOCAL_DUMP_DIR)}")
+
     else:
         print("[!] No matched devices were processed.")
 
@@ -160,55 +178,66 @@ def create_output_directory() -> None:
     os.makedirs(LOCAL_DUMP_DIR, exist_ok=True)
 
 
-def get_file_type(filename: str) -> Optional[str]:
+def get_device_type_from_filename(filename: str) -> DeviceType | None:
     """Return the registered device type encoded in a filename."""
 
     normalized_filename = filename.upper().replace(" ", "_")
 
     for device_type in SUPPORTED_DEVICE_TYPES:
         if normalized_filename.startswith(f"{device_type}_"):
-            return device_type
+            return DeviceType(device_type)
 
     return None
 
 
 def get_video_device_type(
     filename: str,
-) -> Optional[str]:
+) -> DeviceType | None:
     """Return the registered device type encoded in a video filename."""
 
     normalized_filename = filename.upper().replace(" ", "_")
 
     for device_type in SUPPORTED_DEVICE_TYPES:
-        if normalized_filename.startswith(f"VIDEO_{device_type}_"):
-            return device_type
+        if normalized_filename.startswith(f"{VIDEO_FILE_PREFIX}_{device_type}"):
+            return DeviceType(device_type)
 
     return None
 
 
-def get_video_files() -> list[dict]:
-    """Return downloaded videos from the local dump directory."""
+def get_video_files() -> list[FlightFile]:
+    """Return standalone downloaded videos from the dump directory."""
 
-    videos = []
+    videos: list[FlightFile] = []
 
     for filename in os.listdir(LOCAL_DUMP_DIR):
-        if not filename.upper().startswith("VIDEO_"):
+        if not filename.upper().startswith(f"{VIDEO_FILE_PREFIX}_"):
             continue
 
-        file_path = os.path.join(LOCAL_DUMP_DIR, filename)
+        file_path = os.path.join(
+            LOCAL_DUMP_DIR,
+            filename,
+        )
 
         if not os.path.isfile(file_path):
             continue
 
+        device_type = get_video_device_type(filename)
+
+        if device_type is None:
+            continue
+
         try:
             videos.append(
-                {
-                    "filename": filename,
-                    "path": file_path,
-                    "mtime": os.path.getmtime(file_path),
-                    "size": os.path.getsize(file_path),
-                }
+                FlightFile(
+                    filename=filename,
+                    path=file_path,
+                    device_type=device_type,
+                    file_type=FlightFileType.VIDEO,
+                    mtime=os.path.getmtime(file_path),
+                    size=os.path.getsize(file_path),
+                )
             )
+
         except OSError:
             continue
 
@@ -217,36 +246,36 @@ def get_video_files() -> list[dict]:
 
 def attach_videos_to_flight(
     flight_dir: str,
-    videos: list[dict],
+    videos: list[FlightFile],
 ) -> int:
-    """Move already-matched videos into a flight directory."""
+    """Move matched videos into a flight directory."""
 
     moved_count = 0
 
     for video in videos:
         destination = os.path.join(
             flight_dir,
-            video["filename"],
+            video.filename,
         )
 
         try:
             shutil.move(
-                video["path"],
+                video.path,
                 destination,
             )
 
             moved_count += 1
 
         except OSError as error:
-            print(f"[!] Failed to move a screen video: {error}")
+            print(f"[!] Failed to move screen video {video.filename}: {error}")
 
     return moved_count
 
 
 def group_files_into_flights(
     starting_flight_number: int,
-) -> list[dict]:
-    """Group compatible REFF files and their matched videos into flights."""
+) -> list[Flight]:
+    """Group compatible REFF files into flight folders."""
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
         return []
@@ -256,17 +285,14 @@ def group_files_into_flights(
     if not files:
         return []
 
-    files.sort(key=lambda file_info: file_info["mtime"])
+    files.sort(key=lambda file_info: file_info.mtime)
 
-    videos = get_video_files()
+    used_indexes: set[int] = set()
+    flights: list[Flight] = []
 
-    used_indexes = set()
-    used_video_paths = set()
-
-    flights = []
     flight_number = starting_flight_number
 
-    for index, base_file in enumerate(files):
+    for index in range(len(files)):
         if index in used_indexes:
             continue
 
@@ -276,22 +302,14 @@ def group_files_into_flights(
             used_indexes,
         )
 
-        matching_videos = find_matching_videos(
-            selected_files,
-            videos,
-            files,
-            used_video_paths,
-        )
-
-        # A flight needs either:
-        # - REFF files from multiple device types, or
-        # - one REFF with one or more videos assigned to it.
-        if len(selected_files) < 2 and not matching_videos:
+        # Phase 1 creates a folder only when two or more
+        # REFF files are matched.
+        if len(selected_files) < 2:
             continue
 
         flight_name, flight_dir = create_flight_directory(
             flight_number,
-            selected_files[0]["mtime"],
+            selected_files[0].mtime,
         )
 
         move_flight_files(
@@ -299,21 +317,15 @@ def group_files_into_flights(
             selected_files,
         )
 
-        attach_videos_to_flight(
-            flight_dir,
-            matching_videos,
-        )
-
         used_indexes.update(selected_indexes)
 
-        used_video_paths.update(video["path"] for video in matching_videos)
-
         flights.append(
-            {
-                "name": flight_name,
-                "files_by_type": (group_files_by_type(selected_files)),
-                "videos": [video["filename"] for video in matching_videos],
-            }
+            Flight(
+                number=flight_number,
+                name=flight_name,
+                path=flight_dir,
+                reff_files=selected_files,
+            )
         )
 
         flight_number += 1
@@ -321,75 +333,37 @@ def group_files_into_flights(
     return flights
 
 
-def find_matching_videos(
-    flight_files: list[dict],
-    videos: list[dict],
-    all_reff_files: list[dict],
-    used_video_paths: Optional[set[str]] = None,
-) -> list[dict]:
-    """Return videos whose target REFF belongs to this flight."""
+def collect_reff_files() -> list[FlightFile]:
+    """Collect standalone REFF files from the dump directory."""
 
-    used_video_paths = used_video_paths or set()
-
-    flight_reff_paths = {file_info["path"] for file_info in flight_files}
-
-    matching_videos = []
-
-    for video in videos:
-        if video["path"] in used_video_paths:
-            continue
-
-        target_reff = find_target_reff_for_video(
-            video,
-            all_reff_files,
-        )
-
-        if target_reff is None:
-            continue
-
-        if target_reff["path"] in flight_reff_paths:
-            matching_videos.append(video)
-
-    return matching_videos
-
-
-def group_files_by_type(files: list[dict]) -> dict[str, list[str]]:
-    """Group filenames by their registered device type."""
-
-    grouped_files: dict[str, list[str]] = {}
-
-    for file_info in files:
-        grouped_files.setdefault(file_info["type"], []).append(file_info["filename"])
-
-    return grouped_files
-
-
-def collect_reff_files() -> list[dict]:
-    """Collect REFF files and metadata from the dump directory."""
-
-    files = []
+    files: list[FlightFile] = []
 
     for filename in os.listdir(LOCAL_DUMP_DIR):
-        file_path = os.path.join(LOCAL_DUMP_DIR, filename)
+        file_path = os.path.join(
+            LOCAL_DUMP_DIR,
+            filename,
+        )
 
         if not os.path.isfile(file_path):
             continue
 
-        file_type = get_file_type(filename)
+        device_type = get_device_type_from_filename(filename)
 
-        if file_type is None:
+        if device_type is None:
             continue
 
         try:
             files.append(
-                {
-                    "filename": filename,
-                    "path": file_path,
-                    "type": file_type,
-                    "mtime": os.path.getmtime(file_path),
-                    "size": os.path.getsize(file_path),
-                }
+                FlightFile(
+                    filename=filename,
+                    path=file_path,
+                    device_type=device_type,
+                    file_type=FlightFileType.REFF,
+                    mtime=os.path.getmtime(file_path),
+                    size=os.path.getsize(file_path),
+                )
             )
+
         except OSError:
             continue
 
@@ -397,69 +371,91 @@ def collect_reff_files() -> list[dict]:
 
 
 def select_flight_files(
-    files: list[dict], base_index: int, used_indexes: set[int]
-) -> tuple[list[dict], set[int]]:
-    """Select the best compatible file from each device type."""
+    files: list[FlightFile],
+    base_index: int,
+    used_indexes: set[int],
+) -> tuple[list[FlightFile], set[int]]:
+    """Select the best compatible REFF from each device type."""
 
     base_file = files[base_index]
-    selected_files = [base_file]
-    selected_indexes = {base_index}
-    candidates_by_type = collect_flight_candidates(files, base_index, used_indexes)
 
-    for device_type, candidates in candidates_by_type.items():
-        # Prefer the same minute, then the largest file, then the closest time.
+    selected_files: list[FlightFile] = [base_file]
+
+    selected_indexes: set[int] = {base_index}
+
+    candidates_by_type = collect_flight_candidates(
+        files,
+        base_index,
+        used_indexes,
+    )
+
+    for candidates in candidates_by_type.values():
         candidates.sort(
             key=lambda candidate: (
-                0 if candidate["same_minute"] else 1,
-                -candidate["size"],
-                candidate["time_diff"],
+                0
+                if same_clock_minute(
+                    candidate.mtime,
+                    base_file.mtime,
+                )
+                else 1,
+                -candidate.size,
+                abs(candidate.mtime - base_file.mtime),
             )
         )
+
         selected_candidate = candidates[0]
+
         selected_index = files.index(selected_candidate)
+
         proposed_files = selected_files + [selected_candidate]
 
         if flight_is_within_time_limit(proposed_files):
             selected_files.append(selected_candidate)
+
             selected_indexes.add(selected_index)
 
-    return selected_files, selected_indexes
+    return (
+        selected_files,
+        selected_indexes,
+    )
 
 
 def collect_flight_candidates(
-    files: list[dict], base_index: int, used_indexes: set[int]
-) -> dict[str, list[dict]]:
-    """Collect unused files close enough to the base file for a flight."""
+    files: list[FlightFile],
+    base_index: int,
+    used_indexes: set[int],
+) -> dict[DeviceType, list[FlightFile]]:
+    """Collect compatible REFF candidates by device type."""
 
     base_file = files[base_index]
-    candidates_by_type: dict[str, list[dict]] = {}
 
-    for index in range(base_index + 1, len(files)):
+    candidates_by_type: dict[
+        DeviceType,
+        list[FlightFile],
+    ] = {}
+
+    for index in range(
+        base_index + 1,
+        len(files),
+    ):
         if index in used_indexes:
             continue
 
         candidate = files[index]
 
-        # Files are sorted by time, so once we're outside the allowed
-        # flight window there is no reason to continue checking.
-        if candidate["mtime"] - base_file["mtime"] > MAX_FLIGHT_TIME_DIFF:
+        # Files are already sorted by mtime.
+        # Once we pass the maximum time difference,
+        # later files cannot match this base REFF.
+        if candidate.mtime - base_file.mtime > MAX_FLIGHT_TIME_DIFF:
             break
 
-        # A flight can contain only one REFF file from each device type.
-        # The device type is reliable here because our extraction code
-        # adds the configured device prefix before flight grouping.
-        if candidate["type"] == base_file["type"]:
+        # Only one REFF from each device type
+        # may belong to the same flight.
+        if candidate.device_type == base_file.device_type:
             continue
 
-        candidate["time_diff"] = abs(candidate["mtime"] - base_file["mtime"])
-
-        candidate["same_minute"] = same_clock_minute(
-            candidate["mtime"],
-            base_file["mtime"],
-        )
-
         candidates_by_type.setdefault(
-            candidate["type"],
+            candidate.device_type,
             [],
         ).append(candidate)
 
@@ -474,15 +470,21 @@ def same_clock_minute(first_timestamp: float, second_timestamp: float) -> bool:
     return first_minute == second_minute
 
 
-def flight_is_within_time_limit(flight_files: list[dict]) -> bool:
-    """Return whether a flight's first and last files are close enough."""
+def flight_is_within_time_limit(
+    flight_files: list[FlightFile],
+) -> bool:
+    """Return whether all REFF end times fit within the flight time window."""
 
-    timestamps = [file_info["mtime"] for file_info in flight_files]
+    if not flight_files:
+        return False
+
+    timestamps: list[float] = [file_info.mtime for file_info in flight_files]
+
     return max(timestamps) - min(timestamps) <= MAX_FLIGHT_TIME_DIFF
 
 
 def get_next_flight_number() -> int:
-    """Return the next flight number based on existing flight items."""
+    """Return the next number based on existing top-level flight items."""
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
         return 1
@@ -490,7 +492,10 @@ def get_next_flight_number() -> int:
     flight_count = 0
 
     for name in os.listdir(LOCAL_DUMP_DIR):
-        path = os.path.join(LOCAL_DUMP_DIR, name)
+        path = os.path.join(
+            LOCAL_DUMP_DIR,
+            name,
+        )
 
         if os.path.isdir(path) and name.startswith("Flight_"):
             flight_count += 1
@@ -499,11 +504,11 @@ def get_next_flight_number() -> int:
         if not os.path.isfile(path):
             continue
 
-        if name.upper().startswith("VIDEO_"):
+        if name.upper().startswith(f"{VIDEO_FILE_PREFIX}_"):
             flight_count += 1
             continue
 
-        if name.lower().endswith(".reff") and get_file_type(name) is not None:
+        if name.lower().endswith(".reff") and get_device_type_from_filename(name) is not None:
             flight_count += 1
 
     return flight_count + 1
@@ -524,16 +529,26 @@ def create_flight_directory(flight_number: int, first_file_mtime: float) -> tupl
         flight_number += 1
 
 
-def move_flight_files(flight_dir: str, flight_files: list[dict]) -> None:
+def move_flight_files(
+    flight_dir: str,
+    flight_files: list[FlightFile],
+) -> None:
     """Move selected REFF files into a flight directory."""
 
     for file_info in flight_files:
-        destination = os.path.join(flight_dir, file_info["filename"])
+        destination = os.path.join(
+            flight_dir,
+            file_info.filename,
+        )
 
         try:
-            shutil.move(file_info["path"], destination)
+            shutil.move(
+                file_info.path,
+                destination,
+            )
+
         except OSError as error:
-            print(f"[!] Failed to move a REFF file: {error}")
+            print(f"[!] Failed to move REFF file {file_info.filename}: {error}")
 
 
 def process_device(
@@ -681,7 +696,7 @@ def remove_empty_directories(directory: str) -> None:
 def pull_videos(
     device: AndroidDevice,
     progress: Progress,
-    task_id: int,
+    task_id: TaskID,
 ) -> int:
     """Pull today's valid screen recordings from one Android device."""
 
@@ -699,6 +714,7 @@ def pull_videos(
     video_files = list(video_file_sizes)
 
     total_video_files = len(video_files)
+
     total_video_bytes = sum(video_file_sizes.values())
 
     progress.update(
@@ -845,7 +861,7 @@ def pull_remote_file(
     remote_file: str,
     local_directory: str,
     progress: Progress,
-    task_id: int,
+    task_id: TaskID,
     description: str,
 ) -> bool:
     """Pull one remote file while displaying live transfer progress."""
@@ -867,7 +883,10 @@ def pull_remote_file(
     )
 
     process = subprocess.Popen(
-        [get_adb_executable(), *command],
+        [
+            get_adb_executable(),
+            *command,
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -882,7 +901,7 @@ def pull_remote_file(
             if current_size > previous_size:
                 progress.update(
                     task_id,
-                    advance=current_size - previous_size,
+                    advance=(current_size - previous_size),
                     description=description,
                 )
 
@@ -898,7 +917,7 @@ def pull_remote_file(
         if final_size > previous_size:
             progress.update(
                 task_id,
-                advance=final_size - previous_size,
+                advance=(final_size - previous_size),
                 description=description,
             )
 
@@ -947,7 +966,7 @@ def get_remote_file_size(
 def pull_reff_files(
     device: AndroidDevice,
     progress: Progress,
-    task_id: int,
+    task_id: TaskID,
 ) -> int:
     """Pull today's valid REFF files from one Android device."""
 
@@ -965,6 +984,7 @@ def pull_reff_files(
     reff_files = list(reff_file_sizes)
 
     total_reff_files = len(reff_files)
+
     total_reff_bytes = sum(reff_file_sizes.values())
 
     progress.update(

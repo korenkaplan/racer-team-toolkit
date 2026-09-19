@@ -51,7 +51,7 @@ today_str = datetime.now().strftime("%d-%m-%Y")
 home = Path.home()
 onedrive_desktop = home / "OneDrive" / "Desktop"
 standard_desktop = home / "Desktop"
-
+VIDEO_FILE_PREFIX = "VIDEO"
 DESKTOP_PATH = onedrive_desktop if onedrive_desktop.exists() else standard_desktop
 LOCAL_DUMP_DIR = str(DESKTOP_PATH / f"Reff_{today_str}")
 VIDEO_REMOTE_PATH = "/sdcard/Eyesatop-Records/Screen-Videos"
@@ -137,4 +137,5 @@ __all__ = [
     "TOOL_MENU_CHOICES",
     "VIDEO_REMOTE_PATH",
     "DEVICE_MODEL_RULES",
+    "VIDEO_FILE_PREFIX",
 ]
