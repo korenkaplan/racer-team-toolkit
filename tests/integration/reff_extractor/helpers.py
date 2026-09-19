@@ -117,6 +117,25 @@ def push_file_direct(
     return remote_path
 
 
+
+def remote_file_exists(
+    serial: str,
+    remote_path: str,
+) -> bool:
+    """Return whether one exact Android path already exists."""
+
+    return (
+        run_adb(
+            serial,
+            "shell",
+            "test",
+            "-e",
+            remote_path,
+            check=False,
+        ).returncode
+        == 0
+    )
+
 def remove_remote_file(
     serial: str,
     remote_path: str,
