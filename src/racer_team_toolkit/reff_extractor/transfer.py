@@ -61,15 +61,17 @@ def pull_reff_files(
 
     total_reff_bytes = sum(reff_file_sizes.values())
 
+    if not reff_files:
+        progress.console.print("[dim]  REFF: No files found[/dim]")
+        return 0
+
     progress.update(
         task_id,
         total=total_reff_bytes,
         completed=0,
         description=(f"REFF: {get_transfer_verb()} 0 of {total_reff_files} files"),
+        visible=True,
     )
-
-    if not reff_files:
-        return 0
 
     records_dir = os.path.join(
         LOCAL_DUMP_DIR,
@@ -128,15 +130,17 @@ def pull_videos(
 
     total_video_bytes = sum(video_file_sizes.values())
 
+    if not video_files:
+        progress.console.print("[dim]  Videos: No files found[/dim]")
+        return 0
+
     progress.update(
         task_id,
         total=total_video_bytes,
         completed=0,
         description=(f"Videos: {get_transfer_verb()} 0 of {total_video_files} files"),
+        visible=True,
     )
-
-    if not video_files:
-        return 0
 
     videos_dir = os.path.join(
         LOCAL_DUMP_DIR,
@@ -486,6 +490,7 @@ def process_device(
         reff_task_id = progress.add_task(
             f"REFF: {get_transfer_verb()} 0 of 0 files",
             total=0,
+            visible=False,
         )
 
         reff_files = pull_reff_files(
@@ -500,6 +505,7 @@ def process_device(
             video_task_id = progress.add_task(
                 f"Videos: {get_transfer_verb()} 0 of 0 files",
                 total=0,
+                visible=False,
             )
 
             videos = pull_videos(
