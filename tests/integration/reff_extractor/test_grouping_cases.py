@@ -32,6 +32,7 @@ from tests.integration.reff_extractor.helpers import (
     write_actual_tree,
     write_case_description,
     write_status,
+    write_warnings,
 )
 
 pytestmark = [
@@ -245,7 +246,7 @@ def test_case_01_normal_multi_device_flight(
             "It contains ISR REFF + RACER REFF + RACER video.\n"
             "No warning."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(
             monkeypatch,
             dump_dir,
@@ -293,6 +294,10 @@ def test_case_01_normal_multi_device_flight(
 
             flights, warnings = run_grouping(
                 starting_flight_number=1,
+            )
+            write_warnings(
+                case_dir,
+                warnings,
             )
 
             assert len(flights) == 1
@@ -343,7 +348,7 @@ def test_case_02_missing_device_reff_video_joins_existing_flight(
             "It contains ISR REFF + TABLET REFF + RACER video.\n"
             "Exactly one warning: RACER video has no RACER REFF."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(
             monkeypatch,
             dump_dir,
@@ -397,6 +402,10 @@ def test_case_02_missing_device_reff_video_joins_existing_flight(
             flights, warnings = run_grouping(
                 starting_flight_number=1,
             )
+            write_warnings(
+                case_dir,
+                warnings,
+            )
 
             assert len(flights) == 1
             assert len(flights[0].reff_files) == 2
@@ -439,7 +448,7 @@ def test_case_03_cross_device_video_creates_flight_from_standalone_reff(
             "Exactly one Flight_01 folder containing ISR REFF + RACER video.\n"
             "Exactly one warning for missing RACER REFF."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
         isr_reff = push_reff(
@@ -472,6 +481,10 @@ def test_case_03_cross_device_video_creates_flight_from_standalone_reff(
 
             flights, warnings = run_grouping(
                 starting_flight_number=1,
+            )
+            write_warnings(
+                case_dir,
+                warnings,
             )
 
             assert len(flights) == 1
@@ -512,7 +525,7 @@ def test_case_04_same_device_standalone_reff_and_video(
             "Exactly one Flight_01 folder containing RACER REFF + RACER video.\n"
             "No warning."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
         racer_reff = push_reff(
@@ -544,6 +557,10 @@ def test_case_04_same_device_standalone_reff_and_video(
 
             flights, warnings = run_grouping(
                 starting_flight_number=1,
+            )
+            write_warnings(
+                case_dir,
+                warnings,
             )
 
             assert len(flights) == 1
@@ -586,7 +603,7 @@ def test_case_05_same_device_priority_beats_cross_device_fallback(
             "RACER video must be inside Flight B, not Flight A.\n"
             "No missing-RACER warning for the matched flight."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
         isr_a = push_reff(
@@ -650,6 +667,10 @@ def test_case_05_same_device_priority_beats_cross_device_fallback(
             flights, warnings = run_grouping(
                 starting_flight_number=1,
             )
+            write_warnings(
+                case_dir,
+                warnings,
+            )
 
             assert len(flights) == 2
 
@@ -704,7 +725,7 @@ def test_case_06_priority_one_beats_priority_two_within_same_device(
             "RACER video is placed in Flight A.\n"
             "Flight B remains without the video."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
         isr_a = push_reff(
@@ -811,7 +832,7 @@ def test_case_07_priority_two_used_when_no_priority_one(
             "Exactly one flight folder.\n"
             "The RACER video is inside that flight."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
         racer_video = push_video(
@@ -856,6 +877,10 @@ def test_case_07_priority_two_used_when_no_priority_one(
             flights, warnings = run_grouping(
                 starting_flight_number=1,
             )
+            write_warnings(
+                case_dir,
+                warnings,
+            )
 
             assert len(flights) == 1
             assert warnings == []
@@ -895,7 +920,7 @@ def test_case_08_outside_eight_minute_window_stays_standalone(
             "RACER video remains as a standalone file in DUMP/.\n"
             "One warning with no flight name."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
         racer_video = push_video(
@@ -945,6 +970,10 @@ def test_case_08_outside_eight_minute_window_stays_standalone(
 
             flights, warnings = run_grouping(
                 starting_flight_number=1,
+            )
+            write_warnings(
+                case_dir,
+                warnings,
             )
 
             assert len(flights) == 1
@@ -1209,7 +1238,7 @@ def test_case_10_closest_match_wins_within_same_priority(
             "Two flight folders remain visible.\n"
             "The RACER video is moved into Flight_02."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
         try:
@@ -1346,7 +1375,7 @@ def test_case_11_paths_update_after_real_moves(
             "Both FlightFile.path values point inside that folder.\n"
             "Both target files physically exist."
         ),
-    ) as (_, dump_dir):
+    ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
         racer_reff = push_reff(
@@ -1378,6 +1407,10 @@ def test_case_11_paths_update_after_real_moves(
 
             flights, warnings = run_grouping(
                 starting_flight_number=1,
+            )
+            write_warnings(
+                case_dir,
+                warnings,
             )
 
             assert warnings == []
