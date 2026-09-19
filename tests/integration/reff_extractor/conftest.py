@@ -5,21 +5,18 @@ import pytest
 from tests.integration.reff_extractor.config import (
     ISR_SERIAL,
     RUN_ENV_VAR,
-    TIME_ADJUSTMENT_RUN_ENV_VAR,
     SOURCE_REFF_1,
     SOURCE_REFF_2,
     SOURCE_VIDEO,
     TABLET_SERIAL,
+    TIME_ADJUSTMENT_RUN_ENV_VAR,
 )
-from tests.integration.reff_extractor.helpers import (
-    clear_remote_test_area,
-    connected_serials,
-)
+from tests.integration.reff_extractor.helpers import connected_serials
 
 
 @pytest.fixture(scope="session", autouse=True)
 def require_explicit_integration_test_opt_in() -> None:
-    """Keep physical-device tests out of normal pytest runs."""
+    """Keep physical-device tests out of ordinary pytest runs."""
 
     normal_tests_enabled = os.getenv(RUN_ENV_VAR) == "1"
     time_adjustment_enabled = os.getenv(TIME_ADJUSTMENT_RUN_ENV_VAR) == "1"
@@ -30,15 +27,13 @@ def require_explicit_integration_test_opt_in() -> None:
             f"{TIME_ADJUSTMENT_RUN_ENV_VAR}=1 for Tablet time-adjustment tests.",
         )
 
-    required_files = [
-        SOURCE_REFF_1,
-        SOURCE_REFF_2,
-        SOURCE_VIDEO,
-    ]
-
     missing = [
         str(path)
-        for path in required_files
+        for path in (
+            SOURCE_REFF_1,
+            SOURCE_REFF_2,
+            SOURCE_VIDEO,
+        )
         if not path.is_file()
     ]
 
@@ -51,7 +46,7 @@ def require_explicit_integration_test_opt_in() -> None:
 
 @pytest.fixture(scope="session")
 def connected_test_devices() -> set[str]:
-    """Require the fixed ISR and Tablet devices."""
+    """Require the fixed ISR and Tablet physical devices."""
 
     serials = connected_serials()
 
@@ -69,23 +64,3 @@ def connected_test_devices() -> set[str]:
         )
 
     return serials
-
-
-@pytest.fixture
-def clean_remote_test_devices(
-    connected_test_devices: set[str],
-):
-    """Clean only the dedicated remote integration-test directories."""
-
-    serials = [
-        ISR_SERIAL,
-        TABLET_SERIAL,
-    ]
-
-    for serial in serials:
-        clear_remote_test_area(serial)
-
-    yield connected_test_devices
-
-    for serial in serials:
-        clear_remote_test_area(serial)
