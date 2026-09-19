@@ -34,6 +34,7 @@ from tests.integration.reff_extractor.helpers import (
     real_reff_path,
     real_video_path,
     recreate_case_directory,
+    remote_file_exists,
     remove_remote_files,
     run_adb,
     write_actual_tree,
@@ -260,10 +261,27 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
         corrected_video_path,
     ]
 
+    # Only test-owned input names are safe to remove before setup.
     remove_remote_files(
         TABLET_SERIAL,
-        cleanup_paths,
+        [
+            old_reff_path,
+            old_video_path,
+        ],
     )
+
+    for generated_path in (
+        corrected_reff_path,
+        corrected_video_path,
+    ):
+        if remote_file_exists(
+            TABLET_SERIAL,
+            generated_path,
+        ):
+            pytest.fail(
+                "Time Adjustment test would collide with an existing real file: "
+                f"{generated_path}"
+            )
 
     with visible_time_case(
         "Case_01_Rename_And_Flight_Folder",
@@ -452,10 +470,26 @@ def test_time_adjustment_collision_uses_number_suffix(
         numbered_path,
     ]
 
+    # Remove only the clearly test-owned input path before setup.
     remove_remote_files(
         TABLET_SERIAL,
-        cleanup_paths,
+        [
+            old_path,
+        ],
     )
+
+    for generated_path in (
+        corrected_path,
+        numbered_path,
+    ):
+        if remote_file_exists(
+            TABLET_SERIAL,
+            generated_path,
+        ):
+            pytest.fail(
+                "Time Adjustment collision test would touch an existing real file: "
+                f"{generated_path}"
+            )
 
     with visible_time_case(
         "Case_02_Collision_Number_1",
