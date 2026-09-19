@@ -27,6 +27,10 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+markers = [
+    "reff_integration: REFF extractor integration tests",
+    "adb_integration: tests that require the fixed physical ADB devices",
+]
 
 [tool.ruff]
 line-length = 100
