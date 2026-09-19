@@ -16,6 +16,9 @@ from racer_team_toolkit.reff_extractor.grouping_dataclasses import (
     Flight,
     FlightFile,
     FlightFileType,
+    GroupingWarning,
+    ReffGroupingResult,
+    VideoGroupingResult,
 )
 
 MAX_VIDEO_AFTER_REFF_SECONDS = 60
@@ -24,20 +27,29 @@ MAX_REFF_AFTER_VIDEO_SECONDS = 8 * 60
 
 def group_files_into_flights(
     starting_flight_number: int,
-) -> list[Flight]:
-    """Group compatible REFF files into flight folders."""
+) -> ReffGroupingResult:
+    """Group compatible REFF files and return grouped and standalone results."""
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
-        return []
+        return ReffGroupingResult(
+            flights=[],
+            standalone_reffs=[],
+            next_flight_number=starting_flight_number,
+        )
 
     files = collect_reff_files()
 
     if not files:
-        return []
+        return ReffGroupingResult(
+            flights=[],
+            standalone_reffs=[],
+            next_flight_number=starting_flight_number,
+        )
 
     files.sort(key=lambda file_info: file_info.mtime)
 
     used_indexes: set[int] = set()
+    standalone_reffs: list[FlightFile] = []
     flights: list[Flight] = []
 
     flight_number = starting_flight_number
@@ -52,9 +64,9 @@ def group_files_into_flights(
             used_indexes,
         )
 
-        # Phase 1 creates a folder only when two or more
-        # REFF files are matched.
         if len(selected_files) < 2:
+            standalone_reffs.append(files[index])
+            used_indexes.add(index)
             continue
 
         flight_name, flight_dir = create_flight_directory(
@@ -80,7 +92,99 @@ def group_files_into_flights(
 
         flight_number += 1
 
-    return flights
+    return ReffGroupingResult(
+        flights=flights,
+        standalone_reffs=standalone_reffs,
+        next_flight_number=flight_number,
+    )
+
+
+def group_videos_into_flights(
+    flights: list[Flight],
+    standalone_reffs: list[FlightFile],
+    starting_flight_number: int,
+) -> VideoGroupingResult:
+    """Group standalone videos into existing or newly created flights."""
+
+    videos = get_video_files()
+
+    warnings: list[GroupingWarning] = []
+
+    flight_number = starting_flight_number
+
+    for video in videos:
+        matched_flight = find_best_existing_flight_for_video(
+            video,
+            flights,
+        )
+
+        if matched_flight is not None:
+            attached = attach_video_to_flight(
+                matched_flight,
+                video,
+            )
+
+            if not attached:
+                continue
+
+            if not flight_has_same_device_reff(
+                matched_flight,
+                video,
+            ):
+                warnings.append(
+                    create_missing_reff_warning(
+                        video,
+                        matched_flight,
+                    )
+                )
+
+            continue
+
+        matched_reff = find_best_standalone_reff_for_video(
+            video,
+            standalone_reffs,
+        )
+
+        if matched_reff is not None:
+            new_flight = create_flight_from_standalone_reff_and_video(
+                matched_reff,
+                video,
+                flight_number,
+            )
+
+            if new_flight is None:
+                continue
+
+            flights.append(new_flight)
+
+            standalone_reffs.remove(matched_reff)
+
+            if not flight_has_same_device_reff(
+                new_flight,
+                video,
+            ):
+                warnings.append(
+                    create_missing_reff_warning(
+                        video,
+                        new_flight,
+                    )
+                )
+
+            flight_number += 1
+
+            continue
+
+        warnings.append(
+            create_missing_reff_warning(
+                video,
+                None,
+            )
+        )
+
+    return VideoGroupingResult(
+        flights=flights,
+        warnings=warnings,
+    )
 
 
 def collect_reff_files() -> list[FlightFile]:
@@ -323,7 +427,7 @@ def move_flight_files(
     flight_dir: str,
     flight_files: list[FlightFile],
 ) -> None:
-    """Move selected REFF files into a flight directory."""
+    """Move REFF files into a flight directory and update their paths."""
 
     for file_info in flight_files:
         destination = os.path.join(
@@ -337,33 +441,211 @@ def move_flight_files(
                 destination,
             )
 
+            file_info.path = destination
+
         except OSError as error:
             print(f"[!] Failed to move REFF file {file_info.filename}: {error}")
 
 
-def attach_videos_to_flight(
-    flight_dir: str,
-    videos: list[FlightFile],
-) -> int:
-    """Move matched videos into a flight directory."""
+def attach_video_to_flight(
+    flight: Flight,
+    video: FlightFile,
+) -> bool:
+    """Move one video into a flight and update the Flight object."""
 
-    moved_count = 0
+    destination = os.path.join(
+        flight.path,
+        video.filename,
+    )
 
-    for video in videos:
-        destination = os.path.join(
-            flight_dir,
-            video.filename,
+    try:
+        shutil.move(
+            video.path,
+            destination,
         )
 
-        try:
-            shutil.move(
-                video.path,
-                destination,
+        video.path = destination
+        flight.videos.append(video)
+
+        return True
+
+    except OSError as error:
+        print(f"[!] Failed to move screen video {video.filename}: {error}")
+
+        return False
+
+
+def get_latest_flight_end_time(
+    flight: Flight,
+) -> float:
+    """Return the latest REFF end time for a flight."""
+
+    if not flight.reff_files:
+        raise ValueError(f"Flight {flight.name} has no REFF files.")
+
+    return max(reff.mtime for reff in flight.reff_files)
+
+
+def find_best_existing_flight_for_video(
+    video: FlightFile,
+    flights: list[Flight],
+) -> Flight | None:
+    """Return the best existing flight for a video based on end times."""
+
+    priority_one_matches: list[tuple[float, Flight]] = []
+    priority_two_matches: list[tuple[float, Flight]] = []
+
+    for flight in flights:
+        flight_end = get_latest_flight_end_time(flight)
+
+        video_after_flight = video.mtime - flight_end
+
+        if 0 <= video_after_flight <= MAX_VIDEO_AFTER_REFF_SECONDS:
+            priority_one_matches.append(
+                (
+                    video_after_flight,
+                    flight,
+                )
+            )
+            continue
+
+        flight_after_video = flight_end - video.mtime
+
+        if 0 < flight_after_video <= MAX_REFF_AFTER_VIDEO_SECONDS:
+            priority_two_matches.append(
+                (
+                    flight_after_video,
+                    flight,
+                )
             )
 
-            moved_count += 1
+    if priority_one_matches:
+        return min(
+            priority_one_matches,
+            key=lambda match: match[0],
+        )[1]
 
-        except OSError as error:
-            print(f"[!] Failed to move screen video {video.filename}: {error}")
+    if priority_two_matches:
+        return min(
+            priority_two_matches,
+            key=lambda match: match[0],
+        )[1]
 
-    return moved_count
+    return None
+
+
+def flight_has_same_device_reff(
+    flight: Flight,
+    video: FlightFile,
+) -> bool:
+    """Return whether the flight has a REFF from the video's device type."""
+
+    return any(reff.device_type == video.device_type for reff in flight.reff_files)
+
+
+def find_best_standalone_reff_for_video(
+    video: FlightFile,
+    standalone_reffs: list[FlightFile],
+) -> FlightFile | None:
+    """Return the best standalone REFF for a video based on end times."""
+
+    priority_one_matches: list[tuple[float, FlightFile]] = []
+    priority_two_matches: list[tuple[float, FlightFile]] = []
+
+    for reff in standalone_reffs:
+        video_after_reff = video.mtime - reff.mtime
+
+        if 0 <= video_after_reff <= MAX_VIDEO_AFTER_REFF_SECONDS:
+            priority_one_matches.append(
+                (
+                    video_after_reff,
+                    reff,
+                )
+            )
+            continue
+
+        reff_after_video = reff.mtime - video.mtime
+
+        if 0 < reff_after_video <= MAX_REFF_AFTER_VIDEO_SECONDS:
+            priority_two_matches.append(
+                (
+                    reff_after_video,
+                    reff,
+                )
+            )
+
+    if priority_one_matches:
+        return min(
+            priority_one_matches,
+            key=lambda match: match[0],
+        )[1]
+
+    if priority_two_matches:
+        return min(
+            priority_two_matches,
+            key=lambda match: match[0],
+        )[1]
+
+    return None
+
+
+def create_flight_from_standalone_reff_and_video(
+    reff: FlightFile,
+    video: FlightFile,
+    flight_number: int,
+) -> Flight | None:
+    """Create a new flight from a standalone REFF and matching video."""
+
+    flight_name, flight_dir = create_flight_directory(
+        flight_number,
+        reff.mtime,
+    )
+
+    move_flight_files(
+        flight_dir,
+        [reff],
+    )
+
+    flight = Flight(
+        number=flight_number,
+        name=flight_name,
+        path=flight_dir,
+        reff_files=[reff],
+    )
+
+    video_attached = attach_video_to_flight(
+        flight,
+        video,
+    )
+
+    if not video_attached:
+        return None
+
+    return flight
+
+
+def create_missing_reff_warning(
+    video: FlightFile,
+    flight: Flight | None,
+) -> GroupingWarning:
+    """Create a warning for a video without a REFF from the same device."""
+
+    flight_name = flight.name if flight is not None else None
+
+    if flight_name is not None:
+        message = (
+            f"Screen recording from {video.device_type.value} was grouped into "
+            f"{flight_name}, but no matching REFF from the same device was found."
+        )
+    else:
+        message = (
+            f"Screen recording from {video.device_type.value} has no matching "
+            "REFF and could not be grouped into a flight folder."
+        )
+
+    return GroupingWarning(
+        device_type=video.device_type,
+        filename=video.filename,
+        flight_name=flight_name,
+        message=message,
+    )

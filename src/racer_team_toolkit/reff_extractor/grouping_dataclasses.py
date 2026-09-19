@@ -10,6 +10,16 @@ class FlightFileType(str, Enum):
 
 
 @dataclass
+class GroupingWarning:
+    """Warning created when grouping reveals an abnormal recording situation."""
+
+    device_type: DeviceType
+    filename: str
+    message: str
+    flight_name: str | None = None
+
+
+@dataclass
 class FlightFile:
     filename: str
     path: str
@@ -29,17 +39,23 @@ class Flight:
 
 
 @dataclass
-class GroupingWarning:
-    warning_type: str
-    device_type: DeviceType
-    filename: str
-    flight_name: str | None = None
-    message: str = ""
-
-
-@dataclass
 class GroupingResult:
     flights: list[Flight] = field(default_factory=list)
     standalone_reffs: list[FlightFile] = field(default_factory=list)
     standalone_videos: list[FlightFile] = field(default_factory=list)
     warnings: list[GroupingWarning] = field(default_factory=list)
+
+
+@dataclass
+class VideoGroupingResult:
+    """Result of grouping videos into flights."""
+
+    flights: list[Flight]
+    warnings: list[GroupingWarning] = field(default_factory=list)
+
+
+@dataclass
+class ReffGroupingResult:
+    flights: list[Flight]
+    standalone_reffs: list[FlightFile]
+    next_flight_number: int

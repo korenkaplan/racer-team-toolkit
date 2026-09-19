@@ -8,8 +8,12 @@ from racer_team_toolkit.config import (
 from racer_team_toolkit.reff_extractor.grouping import (
     get_next_flight_number,
     group_files_into_flights,
+    group_videos_into_flights,
 )
-from racer_team_toolkit.reff_extractor.grouping_dataclasses import Flight
+from racer_team_toolkit.reff_extractor.grouping_dataclasses import (
+    Flight,
+    GroupingWarning,
+)
 from racer_team_toolkit.reff_extractor.time_adjustment_functions import (
     validate_device_times_before_extraction,
 )
@@ -18,6 +22,7 @@ from racer_team_toolkit.ui.functions import (
     console,
     print_extraction_summary,
     print_flight_table,
+    print_grouping_warnings,
 )
 
 
@@ -63,7 +68,9 @@ def run_extraction(*, include_videos: bool) -> None:
     processed_any = False
     copied_reff_files = 0
     copied_videos = 0
+
     flights: list[Flight] = []
+    warnings: list[GroupingWarning] = []
 
     for device in devices_to_process:
         result = process_device(
@@ -77,13 +84,26 @@ def run_extraction(*, include_videos: bool) -> None:
         processed_any = True
 
     if processed_any:
-        flights = group_files_into_flights(
+        reff_grouping_result = group_files_into_flights(
             starting_flight_number=next_flight_number,
         )
+
+        flights = reff_grouping_result.flights
+
+        if include_videos:
+            video_grouping_result = group_videos_into_flights(
+                flights=reff_grouping_result.flights,
+                standalone_reffs=reff_grouping_result.standalone_reffs,
+                starting_flight_number=reff_grouping_result.next_flight_number,
+            )
+
+            flights = video_grouping_result.flights
+            warnings = video_grouping_result.warnings
 
     print_extraction_result(
         processed_any,
         flights,
+        warnings,
         copied_reff_files,
         copied_videos,
         include_videos,
@@ -102,6 +122,7 @@ def print_connected_devices(devices: list[AndroidDevice]) -> None:
 def print_extraction_result(
     processed_any: bool,
     flights: list[Flight],
+    warnings: list[GroupingWarning],
     copied_reff_files: int,
     copied_videos: int,
     include_videos: bool,
@@ -129,7 +150,13 @@ def print_extraction_result(
         if include_videos:
             summary[f"Screen videos {get_transfer_verb().lower()}"] = copied_videos
 
+        if warnings:
+            summary["Recording warnings"] = len(warnings)
+
         print_extraction_summary(summary)
+
+        if warnings:
+            print_grouping_warnings(warnings)
 
         print(f"\n[V] All files are located at:\n    {os.path.abspath(LOCAL_DUMP_DIR)}")
 

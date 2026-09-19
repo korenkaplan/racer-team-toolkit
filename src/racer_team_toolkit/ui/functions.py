@@ -7,7 +7,10 @@ from rich.panel import Panel
 from rich.status import Status
 from rich.table import Table
 
-from racer_team_toolkit.reff_extractor.grouping_dataclasses import Flight
+from racer_team_toolkit.reff_extractor.grouping_dataclasses import (
+    Flight,
+    GroupingWarning,
+)
 
 console = Console()
 T = TypeVar("T")
@@ -127,4 +130,34 @@ def print_extraction_summary(summary: dict[str, int]) -> None:
     for label, value in summary.items():
         table.add_row(label, str(value))
 
+    console.print(table)
+
+
+def print_grouping_warnings(
+    warnings: list[GroupingWarning],
+) -> None:
+    """Render recording warnings in a Rich table."""
+
+    table = Table(
+        title="Recording Warnings",
+        show_lines=True,
+    )
+
+    table.add_column(
+        "Device",
+        style="yellow",
+    )
+    table.add_column("Video")
+    table.add_column("Flight")
+    table.add_column("Warning")
+
+    for warning in warnings:
+        table.add_row(
+            warning.device_type.value,
+            warning.filename,
+            warning.flight_name or "Standalone",
+            warning.message,
+        )
+
+    console.print()
     console.print(table)
