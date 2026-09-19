@@ -1,10 +1,11 @@
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 from racer_team_toolkit.adb.device_detection import DeviceType
-from racer_team_toolkit.reff_extractor import grouping
+from racer_team_toolkit.reff_extractor import grouping, transfer
 from racer_team_toolkit.reff_extractor.grouping_dataclasses import (
     Flight,
     FlightFile,
@@ -12,13 +13,31 @@ from racer_team_toolkit.reff_extractor.grouping_dataclasses import (
 )
 
 from tests.integration.reff_extractor.config import (
+    ISR_SERIAL,
+    REAL_REMOTE_REFF_PATH,
+    REAL_REMOTE_VIDEO_PATH,
     SOURCE_REFF_1,
     SOURCE_REFF_2,
     SOURCE_VIDEO,
+    TABLET_SERIAL,
 )
-from tests.integration.reff_extractor.helpers import create_local_test_file
+from tests.integration.reff_extractor.helpers import (
+    build_test_device,
+    ensure_real_remote_directories,
+    push_file_direct,
+    real_reff_path,
+    real_video_path,
+    recreate_case_directory,
+    remove_remote_files,
+    write_actual_tree,
+    write_case_description,
+    write_status,
+)
 
-pytestmark = pytest.mark.reff_integration
+pytestmark = [
+    pytest.mark.reff_integration,
+    pytest.mark.adb_integration,
+]
 
 
 def ts(hour: int, minute: int, second: int = 0) -> float:
@@ -34,67 +53,68 @@ def ts(hour: int, minute: int, second: int = 0) -> float:
 
 def patch_dump(
     monkeypatch: pytest.MonkeyPatch,
-    root: Path,
+    dump_dir: Path,
 ) -> None:
     monkeypatch.setattr(
         grouping,
         "LOCAL_DUMP_DIR",
-        str(root),
+        str(dump_dir),
+    )
+    monkeypatch.setattr(
+        transfer,
+        "LOCAL_DUMP_DIR",
+        str(dump_dir),
+    )
+    monkeypatch.setattr(
+        transfer,
+        "VIDEO_REMOTE_PATH",
+        REAL_REMOTE_VIDEO_PATH,
     )
 
 
-def create_reff(
-    root: Path,
-    device_type: DeviceType,
-    timestamp: float,
+def process_role(
+    monkeypatch: pytest.MonkeyPatch,
     *,
-    source: Path = SOURCE_REFF_1,
-    suffix: str = "",
-) -> Path:
-    dt = datetime.fromtimestamp(timestamp)
-    filename = (
-        f"{device_type.value}_"
-        f"{dt.strftime('%d_%m_%Y_%H_%M_%S')}"
-        f"{suffix}.reff"
+    serial: str,
+    device_type: str,
+    reff_files: list[str] | None = None,
+    video_files: list[str] | None = None,
+) -> None:
+    """Run the real transfer code against exact files on the real Android path."""
+
+    selected_reffs = list(reff_files or [])
+    selected_videos = list(video_files or [])
+
+    def selected_files(device, remote_path: str) -> list[str]:
+        if remote_path == REAL_REMOTE_REFF_PATH:
+            return selected_reffs
+
+        if remote_path == REAL_REMOTE_VIDEO_PATH:
+            return selected_videos
+
+        return []
+
+    monkeypatch.setattr(
+        transfer,
+        "get_remote_files_from_today",
+        selected_files,
     )
 
-    return create_local_test_file(
-        root,
-        source,
-        filename,
-        timestamp,
+    transfer.process_device(
+        build_test_device(
+            serial,
+            device_type,
+        ),
+        include_videos=True,
     )
 
 
-def create_video(
-    root: Path,
-    device_type: DeviceType,
-    timestamp: float,
+def run_grouping(
     *,
-    suffix: str = "",
-) -> Path:
-    dt = datetime.fromtimestamp(timestamp)
-    filename = (
-        f"VIDEO_{device_type.value}_ScreenRec_"
-        f"{dt.strftime('%Y-%m-%d_%H-%M-%S')}"
-        f"{suffix}.mp4"
-    )
-
-    return create_local_test_file(
-        root,
-        SOURCE_VIDEO,
-        filename,
-        timestamp,
-    )
-
-
-def run_grouping() -> tuple[
-    list[Flight],
-    list,
-    list[FlightFile],
-]:
+    starting_flight_number: int,
+) -> tuple[list[Flight], list]:
     reff_result = grouping.group_files_into_flights(
-        starting_flight_number=1,
+        starting_flight_number=starting_flight_number,
     )
 
     video_result = grouping.group_videos_into_flights(
@@ -103,396 +123,1273 @@ def run_grouping() -> tuple[
         starting_flight_number=reff_result.next_flight_number,
     )
 
-    return (
-        video_result.flights,
-        video_result.warnings,
-        reff_result.standalone_reffs,
-    )
+    return video_result.flights, video_result.warnings
 
 
-def make_flight_file(
-    device_type: DeviceType,
-    file_type: FlightFileType,
+def push_reff(
+    serial: str,
+    filename: str,
     timestamp: float,
-    name: str,
-) -> FlightFile:
-    return FlightFile(
-        filename=name,
-        path=f"/tmp/{name}",
-        device_type=device_type,
-        file_type=file_type,
-        mtime=timestamp,
-        size=1_000_000,
+    *,
+    source: Path = SOURCE_REFF_1,
+) -> str:
+    remote_path = real_reff_path(filename)
+
+    return push_file_direct(
+        serial,
+        source,
+        remote_path,
+        timestamp,
     )
 
 
-def make_flight(
-    number: int,
-    *reffs: FlightFile,
-) -> Flight:
-    return Flight(
-        number=number,
-        name=f"Flight_{number:02d}",
-        path=f"/tmp/Flight_{number:02d}",
-        reff_files=list(reffs),
+def push_video(
+    serial: str,
+    filename: str,
+    timestamp: float,
+) -> str:
+    remote_path = real_video_path(filename)
+
+    return push_file_direct(
+        serial,
+        SOURCE_VIDEO,
+        remote_path,
+        timestamp,
     )
+
+
+@contextmanager
+def visible_case(
+    case_name: str,
+    *,
+    title: str,
+    purpose: str,
+    setup: str,
+    expected: str,
+):
+    case_dir = recreate_case_directory(case_name)
+    dump_dir = case_dir / "DUMP"
+    dump_dir.mkdir()
+
+    write_case_description(
+        case_dir,
+        title=title,
+        purpose=purpose,
+        setup=setup,
+        expected=expected,
+    )
+
+    try:
+        yield case_dir, dump_dir
+    except Exception as error:
+        write_actual_tree(
+            case_dir,
+            dump_dir,
+        )
+        write_status(
+            case_dir,
+            "FAIL",
+            str(error),
+        )
+        raise
+    else:
+        write_actual_tree(
+            case_dir,
+            dump_dir,
+        )
+        write_status(
+            case_dir,
+            "PASS",
+        )
+
+
+def cleanup_remote(
+    paths_by_serial: dict[str, list[str]],
+) -> None:
+    for serial, paths in paths_by_serial.items():
+        remove_remote_files(
+            serial,
+            paths,
+        )
 
 
 def test_case_01_normal_multi_device_flight(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
 ) -> None:
-    """ISR + RACER REFF with a RACER video creates one clean flight."""
+    """ISR + logical RACER REFF/video creates one clean flight."""
 
-    patch_dump(monkeypatch, tmp_path)
+    del connected_test_devices
+    ensure_real_remote_directories()
 
-    create_reff(tmp_path, DeviceType.ISR, ts(8, 0, 0))
-    create_reff(
-        tmp_path,
-        DeviceType.RACER,
-        ts(8, 0, 10),
-        source=SOURCE_REFF_2,
-    )
-    create_video(tmp_path, DeviceType.RACER, ts(8, 0, 40))
-
-    flights, warnings, _ = run_grouping()
-
-    assert len(flights) == 1
-    assert warnings == []
-    assert {reff.device_type for reff in flights[0].reff_files} == {
-        DeviceType.ISR,
-        DeviceType.RACER,
+    cleanup: dict[str, list[str]] = {
+        ISR_SERIAL: [],
+        TABLET_SERIAL: [],
     }
-    assert [video.device_type for video in flights[0].videos] == [
-        DeviceType.RACER,
-    ]
+
+    with visible_case(
+        "Case_01_Normal_Multi_Device",
+        title="Normal multi-device flight",
+        purpose=(
+            "Verify a normal two-device flight. The ISR uses the physical ISR. "
+            "The RACER logical stream uses the physical Tablet because no separate "
+            "RACER serial is configured in this test environment."
+        ),
+        setup=(
+            "ISR REFF: 08:00:00\n"
+            "RACER REFF: 08:00:10\n"
+            "RACER video: 08:00:40"
+        ),
+        expected=(
+            "Exactly one Flight_01 folder.\n"
+            "It contains ISR REFF + RACER REFF + RACER video.\n"
+            "No warning."
+        ),
+    ) as (_, dump_dir):
+        patch_dump(
+            monkeypatch,
+            dump_dir,
+        )
+
+        isr_reff = push_reff(
+            ISR_SERIAL,
+            "RTT_TEST_C01_ISR.reff",
+            ts(8, 0, 0),
+        )
+        racer_reff = push_reff(
+            TABLET_SERIAL,
+            "RTT_TEST_C01_RACER.reff",
+            ts(8, 0, 10),
+            source=SOURCE_REFF_2,
+        )
+        racer_video = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C01_RACER.mp4",
+            ts(8, 0, 40),
+        )
+
+        cleanup[ISR_SERIAL].append(isr_reff)
+        cleanup[TABLET_SERIAL].extend(
+            [
+                racer_reff,
+                racer_video,
+            ]
+        )
+
+        try:
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_reff],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_reff],
+                video_files=[racer_video],
+            )
+
+            flights, warnings = run_grouping(
+                starting_flight_number=1,
+            )
+
+            assert len(flights) == 1
+            assert warnings == []
+            assert len(flights[0].reff_files) == 2
+            assert len(flights[0].videos) == 1
+            assert {
+                reff.device_type
+                for reff in flights[0].reff_files
+            } == {
+                DeviceType.ISR,
+                DeviceType.RACER,
+            }
+            assert flights[0].videos[0].device_type == DeviceType.RACER
+        finally:
+            cleanup_remote(cleanup)
 
 
 def test_case_02_missing_device_reff_video_joins_existing_flight(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
 ) -> None:
-    """RACER video can join ISR + TABLET flight and emits one warning."""
+    """RACER video joins ISR + TABLET flight and emits warning."""
 
-    patch_dump(monkeypatch, tmp_path)
+    del connected_test_devices
+    ensure_real_remote_directories()
 
-    create_reff(tmp_path, DeviceType.ISR, ts(8, 10, 0))
-    create_reff(
-        tmp_path,
-        DeviceType.TABLET,
-        ts(8, 10, 10),
-        source=SOURCE_REFF_2,
-    )
-    create_video(tmp_path, DeviceType.RACER, ts(8, 10, 30))
+    cleanup = {
+        ISR_SERIAL: [],
+        TABLET_SERIAL: [],
+    }
 
-    flights, warnings, _ = run_grouping()
+    with visible_case(
+        "Case_02_Missing_Racer_REFF",
+        title="Video from a device with a missing REFF",
+        purpose=(
+            "Verify cross-device fallback. ISR + TABLET REFFs create the flight, "
+            "while a RACER video has no RACER REFF."
+        ),
+        setup=(
+            "ISR REFF: 08:10:00\n"
+            "TABLET REFF: 08:10:10\n"
+            "RACER video: 08:10:30\n"
+            "RACER REFF: intentionally missing"
+        ),
+        expected=(
+            "Exactly one Flight_01 folder.\n"
+            "It contains ISR REFF + TABLET REFF + RACER video.\n"
+            "Exactly one warning: RACER video has no RACER REFF."
+        ),
+    ) as (_, dump_dir):
+        patch_dump(
+            monkeypatch,
+            dump_dir,
+        )
 
-    assert len(flights) == 1
-    assert len(flights[0].videos) == 1
-    assert flights[0].videos[0].device_type == DeviceType.RACER
-    assert len(warnings) == 1
-    assert warnings[0].device_type == DeviceType.RACER
-    assert warnings[0].flight_name == flights[0].name
+        isr_reff = push_reff(
+            ISR_SERIAL,
+            "RTT_TEST_C02_ISR.reff",
+            ts(8, 10, 0),
+        )
+        tablet_reff = push_reff(
+            TABLET_SERIAL,
+            "RTT_TEST_C02_TABLET.reff",
+            ts(8, 10, 10),
+            source=SOURCE_REFF_2,
+        )
+        racer_video = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C02_RACER.mp4",
+            ts(8, 10, 30),
+        )
+
+        cleanup[ISR_SERIAL].append(isr_reff)
+        cleanup[TABLET_SERIAL].extend(
+            [
+                tablet_reff,
+                racer_video,
+            ]
+        )
+
+        try:
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_reff],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="TABLET",
+                reff_files=[tablet_reff],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                video_files=[racer_video],
+            )
+
+            flights, warnings = run_grouping(
+                starting_flight_number=1,
+            )
+
+            assert len(flights) == 1
+            assert len(flights[0].reff_files) == 2
+            assert len(flights[0].videos) == 1
+            assert flights[0].videos[0].device_type == DeviceType.RACER
+            assert len(warnings) == 1
+            assert warnings[0].device_type == DeviceType.RACER
+            assert warnings[0].flight_name == flights[0].name
+        finally:
+            cleanup_remote(cleanup)
 
 
 def test_case_03_cross_device_video_creates_flight_from_standalone_reff(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
 ) -> None:
-    """ISR standalone REFF + RACER video creates a flight with warning."""
+    """One ISR REFF + RACER video creates a new flight with warning."""
 
-    patch_dump(monkeypatch, tmp_path)
+    del connected_test_devices
+    ensure_real_remote_directories()
 
-    create_reff(tmp_path, DeviceType.ISR, ts(8, 20, 0))
-    create_video(tmp_path, DeviceType.RACER, ts(8, 20, 20))
-
-    flights, warnings, standalone_reffs = run_grouping()
-
-    assert len(flights) == 1
-    assert standalone_reffs == []
-    assert len(warnings) == 1
-    assert warnings[0].device_type == DeviceType.RACER
-    assert {reff.device_type for reff in flights[0].reff_files} == {
-        DeviceType.ISR,
+    cleanup = {
+        ISR_SERIAL: [],
+        TABLET_SERIAL: [],
     }
+
+    with visible_case(
+        "Case_03_Standalone_Cross_Device",
+        title="Standalone REFF + cross-device video",
+        purpose=(
+            "Verify that one standalone ISR REFF can be promoted into a flight "
+            "when a time-matching RACER video is found."
+        ),
+        setup=(
+            "ISR REFF: 08:20:00\n"
+            "RACER video: 08:20:20\n"
+            "RACER REFF: intentionally missing"
+        ),
+        expected=(
+            "Exactly one Flight_01 folder containing ISR REFF + RACER video.\n"
+            "Exactly one warning for missing RACER REFF."
+        ),
+    ) as (_, dump_dir):
+        patch_dump(monkeypatch, dump_dir)
+
+        isr_reff = push_reff(
+            ISR_SERIAL,
+            "RTT_TEST_C03_ISR.reff",
+            ts(8, 20, 0),
+        )
+        racer_video = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C03_RACER.mp4",
+            ts(8, 20, 20),
+        )
+
+        cleanup[ISR_SERIAL].append(isr_reff)
+        cleanup[TABLET_SERIAL].append(racer_video)
+
+        try:
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_reff],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                video_files=[racer_video],
+            )
+
+            flights, warnings = run_grouping(
+                starting_flight_number=1,
+            )
+
+            assert len(flights) == 1
+            assert len(warnings) == 1
+            assert len(flights[0].reff_files) == 1
+            assert len(flights[0].videos) == 1
+            assert flights[0].reff_files[0].device_type == DeviceType.ISR
+            assert flights[0].videos[0].device_type == DeviceType.RACER
+        finally:
+            cleanup_remote(cleanup)
 
 
 def test_case_04_same_device_standalone_reff_and_video(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
 ) -> None:
-    """RACER standalone REFF + RACER video creates a flight without warning."""
+    """One RACER REFF + RACER video creates a new flight without warning."""
 
-    patch_dump(monkeypatch, tmp_path)
+    del connected_test_devices
+    ensure_real_remote_directories()
 
-    create_reff(tmp_path, DeviceType.RACER, ts(8, 30, 0))
-    create_video(tmp_path, DeviceType.RACER, ts(8, 30, 20))
+    cleanup = {
+        TABLET_SERIAL: [],
+    }
 
-    flights, warnings, standalone_reffs = run_grouping()
+    with visible_case(
+        "Case_04_Same_Device_Standalone",
+        title="Same-device standalone REFF + video",
+        purpose=(
+            "Verify that a standalone RACER REFF and same-device RACER video "
+            "create a new flight with no warning."
+        ),
+        setup=(
+            "RACER REFF: 08:30:00\n"
+            "RACER video: 08:30:20"
+        ),
+        expected=(
+            "Exactly one Flight_01 folder containing RACER REFF + RACER video.\n"
+            "No warning."
+        ),
+    ) as (_, dump_dir):
+        patch_dump(monkeypatch, dump_dir)
 
-    assert len(flights) == 1
-    assert standalone_reffs == []
-    assert warnings == []
-    assert flights[0].reff_files[0].device_type == DeviceType.RACER
-    assert flights[0].videos[0].device_type == DeviceType.RACER
+        racer_reff = push_reff(
+            TABLET_SERIAL,
+            "RTT_TEST_C04_RACER.reff",
+            ts(8, 30, 0),
+        )
+        racer_video = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C04_RACER.mp4",
+            ts(8, 30, 20),
+        )
+
+        cleanup[TABLET_SERIAL].extend(
+            [
+                racer_reff,
+                racer_video,
+            ]
+        )
+
+        try:
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_reff],
+                video_files=[racer_video],
+            )
+
+            flights, warnings = run_grouping(
+                starting_flight_number=1,
+            )
+
+            assert len(flights) == 1
+            assert warnings == []
+            assert len(flights[0].reff_files) == 1
+            assert len(flights[0].videos) == 1
+        finally:
+            cleanup_remote(cleanup)
 
 
-def test_case_05_same_device_priority_beats_cross_device_fallback() -> None:
-    """Same-device Priority 2 beats a cross-device Priority 1 fallback."""
+def test_case_05_same_device_priority_beats_cross_device_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
+) -> None:
+    """Same-device Priority 2 beats cross-device Priority 1."""
 
-    video = make_flight_file(
-        DeviceType.RACER,
-        FlightFileType.VIDEO,
-        ts(9, 0, 40),
-        "VIDEO_RACER_test.mp4",
-    )
+    del connected_test_devices
+    ensure_real_remote_directories()
 
-    fallback_flight = make_flight(
-        1,
-        make_flight_file(
-            DeviceType.ISR,
-            FlightFileType.REFF,
+    cleanup = {
+        ISR_SERIAL: [],
+        TABLET_SERIAL: [],
+    }
+
+    with visible_case(
+        "Case_05_Same_Device_Beats_Fallback",
+        title="Same-device match beats cross-device fallback",
+        purpose=(
+            "Validate the new priority rule: a valid same-device RACER match "
+            "wins even when another flight has a closer cross-device fallback."
+        ),
+        setup=(
+            "Flight A: ISR 09:00:00 + TABLET 09:00:10\n"
+            "RACER video: 09:00:40\n"
+            "Flight B: ISR 09:02:30 + RACER 09:02:40\n"
+            "Flight A is cross-device Priority 1. Flight B is same-device Priority 2."
+        ),
+        expected=(
+            "Two flight folders.\n"
+            "RACER video must be inside Flight B, not Flight A.\n"
+            "No missing-RACER warning for the matched flight."
+        ),
+    ) as (_, dump_dir):
+        patch_dump(monkeypatch, dump_dir)
+
+        isr_a = push_reff(
+            ISR_SERIAL,
+            "RTT_TEST_C05_ISR_A.reff",
             ts(9, 0, 0),
-            "ISR_fallback.reff",
-        ),
-    )
-
-    same_device_flight = make_flight(
-        2,
-        make_flight_file(
-            DeviceType.RACER,
-            FlightFileType.REFF,
+        )
+        tablet_a = push_reff(
+            TABLET_SERIAL,
+            "RTT_TEST_C05_TABLET_A.reff",
+            ts(9, 0, 10),
+            source=SOURCE_REFF_2,
+        )
+        isr_b = push_reff(
+            ISR_SERIAL,
+            "RTT_TEST_C05_ISR_B.reff",
+            ts(9, 2, 30),
+            source=SOURCE_REFF_2,
+        )
+        racer_b = push_reff(
+            TABLET_SERIAL,
+            "RTT_TEST_C05_RACER_B.reff",
             ts(9, 2, 40),
-            "RACER_same_device.reff",
+        )
+        racer_video = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C05_RACER.mp4",
+            ts(9, 0, 40),
+        )
+
+        cleanup[ISR_SERIAL].extend([isr_a, isr_b])
+        cleanup[TABLET_SERIAL].extend(
+            [
+                tablet_a,
+                racer_b,
+                racer_video,
+            ]
+        )
+
+        try:
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_a, isr_b],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="TABLET",
+                reff_files=[tablet_a],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_b],
+                video_files=[racer_video],
+            )
+
+            flights, warnings = run_grouping(
+                starting_flight_number=1,
+            )
+
+            assert len(flights) == 2
+
+            racer_flights = [
+                flight
+                for flight in flights
+                if any(
+                    reff.device_type == DeviceType.RACER
+                    for reff in flight.reff_files
+                )
+            ]
+
+            assert len(racer_flights) == 1
+            assert len(racer_flights[0].videos) == 1
+            assert racer_flights[0].videos[0].device_type == DeviceType.RACER
+            assert all(
+                warning.device_type != DeviceType.RACER
+                for warning in warnings
+            )
+        finally:
+            cleanup_remote(cleanup)
+
+
+def test_case_06_priority_one_beats_priority_two_within_same_device(
+    monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
+) -> None:
+    """Same-device Priority 1 beats same-device Priority 2."""
+
+    del connected_test_devices
+    ensure_real_remote_directories()
+
+    cleanup = {
+        ISR_SERIAL: [],
+        TABLET_SERIAL: [],
+    }
+
+    with visible_case(
+        "Case_06_Priority_1_Beats_Priority_2",
+        title="Priority 1 beats Priority 2",
+        purpose=(
+            "Verify ordering inside same-device matches: a RACER flight ending "
+            "before the video within 60 seconds beats a RACER flight ending later "
+            "within the 8-minute Priority 2 window."
         ),
-    )
+        setup=(
+            "Flight A RACER REFF: 09:10:00\n"
+            "RACER video: 09:10:40\n"
+            "Flight B RACER REFF: 09:12:40"
+        ),
+        expected=(
+            "RACER video is placed in Flight A.\n"
+            "Flight B remains without the video."
+        ),
+    ) as (_, dump_dir):
+        patch_dump(monkeypatch, dump_dir)
 
-    matched = grouping.find_best_existing_flight_for_video(
-        video,
-        [
-            fallback_flight,
-            same_device_flight,
-        ],
-    )
-
-    assert matched is same_device_flight
-
-
-def test_case_06_priority_one_beats_priority_two_within_same_device() -> None:
-    """A valid video-after-REFF match beats a later REFF match."""
-
-    video = make_flight_file(
-        DeviceType.RACER,
-        FlightFileType.VIDEO,
-        ts(9, 10, 40),
-        "VIDEO_RACER_test.mp4",
-    )
-
-    priority_one = make_flight(
-        1,
-        make_flight_file(
-            DeviceType.RACER,
-            FlightFileType.REFF,
+        isr_a = push_reff(
+            ISR_SERIAL,
+            "RTT_TEST_C06_ISR_A.reff",
+            ts(9, 10, 5),
+        )
+        racer_a = push_reff(
+            TABLET_SERIAL,
+            "RTT_TEST_C06_RACER_A.reff",
             ts(9, 10, 0),
-            "RACER_before.reff",
-        ),
-    )
-
-    priority_two = make_flight(
-        2,
-        make_flight_file(
-            DeviceType.RACER,
-            FlightFileType.REFF,
+        )
+        isr_b = push_reff(
+            ISR_SERIAL,
+            "RTT_TEST_C06_ISR_B.reff",
+            ts(9, 12, 45),
+            source=SOURCE_REFF_2,
+        )
+        racer_b = push_reff(
+            TABLET_SERIAL,
+            "RTT_TEST_C06_RACER_B.reff",
             ts(9, 12, 40),
-            "RACER_after.reff",
+            source=SOURCE_REFF_2,
+        )
+        racer_video = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C06_RACER.mp4",
+            ts(9, 10, 40),
+        )
+
+        cleanup[ISR_SERIAL].extend([isr_a, isr_b])
+        cleanup[TABLET_SERIAL].extend(
+            [
+                racer_a,
+                racer_b,
+                racer_video,
+            ]
+        )
+
+        try:
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_a, isr_b],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_a, racer_b],
+                video_files=[racer_video],
+            )
+
+            flights, _ = run_grouping(
+                starting_flight_number=1,
+            )
+
+            assert len(flights) == 2
+            flights_with_video = [
+                flight
+                for flight in flights
+                if flight.videos
+            ]
+            assert len(flights_with_video) == 1
+
+            selected_racer_time = max(
+                reff.mtime
+                for reff in flights_with_video[0].reff_files
+                if reff.device_type == DeviceType.RACER
+            )
+            assert selected_racer_time == ts(9, 10, 0)
+        finally:
+            cleanup_remote(cleanup)
+
+
+def test_case_07_priority_two_used_when_no_priority_one(
+    monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
+) -> None:
+    """A flight five minutes after the video is a valid Priority 2 match."""
+
+    del connected_test_devices
+    ensure_real_remote_directories()
+
+    cleanup = {
+        ISR_SERIAL: [],
+        TABLET_SERIAL: [],
+    }
+
+    with visible_case(
+        "Case_07_Priority_2",
+        title="Priority 2 match",
+        purpose=(
+            "Verify that when no valid Priority 1 flight exists, a same-device "
+            "flight ending five minutes after the video is accepted."
         ),
-    )
+        setup=(
+            "RACER video: 09:20:00\n"
+            "Flight RACER REFF: 09:25:00\n"
+            "Flight ISR REFF: 09:25:05"
+        ),
+        expected=(
+            "Exactly one flight folder.\n"
+            "The RACER video is inside that flight."
+        ),
+    ) as (_, dump_dir):
+        patch_dump(monkeypatch, dump_dir)
 
-    matched = grouping.find_best_existing_flight_for_video(
-        video,
-        [
-            priority_one,
-            priority_two,
-        ],
-    )
-
-    assert matched is priority_one
-
-
-def test_case_07_priority_two_used_when_no_priority_one() -> None:
-    """A flight ending five minutes after the video is a valid Priority 2 match."""
-
-    video = make_flight_file(
-        DeviceType.RACER,
-        FlightFileType.VIDEO,
-        ts(9, 20, 0),
-        "VIDEO_RACER_test.mp4",
-    )
-
-    later_flight = make_flight(
-        1,
-        make_flight_file(
-            DeviceType.RACER,
-            FlightFileType.REFF,
+        racer_video = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C07_RACER.mp4",
+            ts(9, 20, 0),
+        )
+        racer_reff = push_reff(
+            TABLET_SERIAL,
+            "RTT_TEST_C07_RACER.reff",
             ts(9, 25, 0),
-            "RACER_later.reff",
-        ),
-    )
+        )
+        isr_reff = push_reff(
+            ISR_SERIAL,
+            "RTT_TEST_C07_ISR.reff",
+            ts(9, 25, 5),
+        )
 
-    matched = grouping.find_best_existing_flight_for_video(
-        video,
-        [later_flight],
-    )
+        cleanup[TABLET_SERIAL].extend(
+            [
+                racer_video,
+                racer_reff,
+            ]
+        )
+        cleanup[ISR_SERIAL].append(isr_reff)
 
-    assert matched is later_flight
+        try:
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_reff],
+                video_files=[racer_video],
+            )
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_reff],
+            )
+
+            flights, warnings = run_grouping(
+                starting_flight_number=1,
+            )
+
+            assert len(flights) == 1
+            assert warnings == []
+            assert len(flights[0].videos) == 1
+        finally:
+            cleanup_remote(cleanup)
 
 
 def test_case_08_outside_eight_minute_window_stays_standalone(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
 ) -> None:
-    """Video ten minutes before the next flight stays standalone with warning."""
+    """Video ten minutes before the next flight remains standalone."""
 
-    patch_dump(monkeypatch, tmp_path)
+    del connected_test_devices
+    ensure_real_remote_directories()
 
-    create_video(tmp_path, DeviceType.RACER, ts(9, 30, 0))
-    create_reff(tmp_path, DeviceType.ISR, ts(9, 40, 0))
-    create_reff(
-        tmp_path,
-        DeviceType.TABLET,
-        ts(9, 40, 5),
-        source=SOURCE_REFF_2,
-    )
+    cleanup = {
+        ISR_SERIAL: [],
+        TABLET_SERIAL: [],
+    }
 
-    flights, warnings, _ = run_grouping()
+    with visible_case(
+        "Case_08_Outside_8_Minutes",
+        title="Outside the 8-minute matching window",
+        purpose=(
+            "Verify that a video is not forced into a flight when the next "
+            "eligible flight ends ten minutes later."
+        ),
+        setup=(
+            "RACER video: 09:30:00\n"
+            "ISR REFF: 09:40:00\n"
+            "TABLET REFF: 09:40:05"
+        ),
+        expected=(
+            "One normal flight folder containing ISR + TABLET REFFs.\n"
+            "RACER video remains as a standalone file in DUMP/.\n"
+            "One warning with no flight name."
+        ),
+    ) as (_, dump_dir):
+        patch_dump(monkeypatch, dump_dir)
 
-    assert len(flights) == 1
-    assert flights[0].videos == []
-    assert len(warnings) == 1
-    assert warnings[0].flight_name is None
+        racer_video = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C08_RACER.mp4",
+            ts(9, 30, 0),
+        )
+        isr_reff = push_reff(
+            ISR_SERIAL,
+            "RTT_TEST_C08_ISR.reff",
+            ts(9, 40, 0),
+        )
+        tablet_reff = push_reff(
+            TABLET_SERIAL,
+            "RTT_TEST_C08_TABLET.reff",
+            ts(9, 40, 5),
+            source=SOURCE_REFF_2,
+        )
 
-    standalone_videos = [
-        path
-        for path in tmp_path.iterdir()
-        if path.is_file() and path.name.startswith("VIDEO_RACER_")
-    ]
+        cleanup[TABLET_SERIAL].extend(
+            [
+                racer_video,
+                tablet_reff,
+            ]
+        )
+        cleanup[ISR_SERIAL].append(isr_reff)
 
-    assert len(standalone_videos) == 1
+        try:
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                video_files=[racer_video],
+            )
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_reff],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="TABLET",
+                reff_files=[tablet_reff],
+            )
+
+            flights, warnings = run_grouping(
+                starting_flight_number=1,
+            )
+
+            assert len(flights) == 1
+            assert flights[0].videos == []
+            assert len(warnings) == 1
+            assert warnings[0].flight_name is None
+
+            standalone = list(
+                dump_dir.glob("VIDEO_RACER_RTT_TEST_C08_RACER.mp4")
+            )
+            assert len(standalone) == 1
+        finally:
+            cleanup_remote(cleanup)
 
 
 def test_case_09_repeated_extraction_numbering_continuity(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
 ) -> None:
-    """Two flight folders + standalone REFF + video makes the next number 5."""
+    """Visible output must show Flight 1, Flight 2, items 3/4, then Flight 5."""
 
-    patch_dump(monkeypatch, tmp_path)
+    del connected_test_devices
+    ensure_real_remote_directories()
 
-    (tmp_path / "Flight_01_19-09-2026_08-00-00").mkdir()
-    (tmp_path / "Flight_02_19-09-2026_08-10-00").mkdir()
+    cleanup = {
+        ISR_SERIAL: [],
+        TABLET_SERIAL: [],
+    }
 
-    create_reff(tmp_path, DeviceType.ISR, ts(10, 0, 0))
-    create_video(tmp_path, DeviceType.TABLET, ts(10, 5, 0))
-
-    assert grouping.get_next_flight_number() == 5
-
-
-def test_case_10_closest_match_wins_within_same_priority() -> None:
-    """When two same-device Priority 1 matches exist, closest time wins."""
-
-    video = make_flight_file(
-        DeviceType.RACER,
-        FlightFileType.VIDEO,
-        ts(10, 20, 0),
-        "VIDEO_RACER_test.mp4",
-    )
-
-    farther = make_flight(
-        1,
-        make_flight_file(
-            DeviceType.RACER,
-            FlightFileType.REFF,
-            ts(10, 19, 10),
-            "RACER_farther.reff",
+    with visible_case(
+        "Case_09_Numbering_Continuity",
+        title="Repeated extraction / numbering continuity",
+        purpose=(
+            "Verify the exact repeated-extraction numbering rule. Two existing "
+            "flight folders count as items 1 and 2. One standalone REFF and one "
+            "standalone video count as items 3 and 4. The next newly-created "
+            "flight must therefore be Flight_05."
         ),
-    )
-
-    closer = make_flight(
-        2,
-        make_flight_file(
-            DeviceType.RACER,
-            FlightFileType.REFF,
-            ts(10, 19, 40),
-            "RACER_closer.reff",
+        setup=(
+            "Step 1 -> create Flight_01 from real Android files.\n"
+            "Step 2 -> create Flight_02 from real Android files.\n"
+            "Step 3 -> leave one standalone REFF and one standalone video.\n"
+            "           These are numbering items 3 and 4.\n"
+            "Step 4 -> extract a new matching REFF/video pair."
         ),
-    )
+        expected=(
+            "DUMP contains Flight_01 and Flight_02.\n"
+            "DUMP contains one standalone REFF (item 3).\n"
+            "DUMP contains one standalone video (item 4).\n"
+            "The next created folder is Flight_05, not Flight_03 or Flight_07."
+        ),
+    ) as (case_dir, dump_dir):
+        patch_dump(monkeypatch, dump_dir)
 
-    matched = grouping.find_best_existing_flight_for_video(
-        video,
-        [
-            farther,
-            closer,
-        ],
-    )
+        try:
+            # Step 1: Flight_01.
+            isr_1 = push_reff(
+                ISR_SERIAL,
+                "RTT_TEST_C09_ISR_1.reff",
+                ts(7, 0, 0),
+            )
+            racer_1 = push_reff(
+                TABLET_SERIAL,
+                "RTT_TEST_C09_RACER_1.reff",
+                ts(7, 0, 10),
+            )
+            cleanup[ISR_SERIAL].append(isr_1)
+            cleanup[TABLET_SERIAL].append(racer_1)
 
-    assert matched is closer
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_1],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_1],
+            )
+            run_grouping(
+                starting_flight_number=1,
+            )
+
+            # Step 2: Flight_02.
+            next_number = grouping.get_next_flight_number()
+            assert next_number == 2
+
+            isr_2 = push_reff(
+                ISR_SERIAL,
+                "RTT_TEST_C09_ISR_2.reff",
+                ts(8, 0, 0),
+                source=SOURCE_REFF_2,
+            )
+            racer_2 = push_reff(
+                TABLET_SERIAL,
+                "RTT_TEST_C09_RACER_2.reff",
+                ts(8, 0, 10),
+                source=SOURCE_REFF_2,
+            )
+            cleanup[ISR_SERIAL].append(isr_2)
+            cleanup[TABLET_SERIAL].append(racer_2)
+
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_2],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_2],
+            )
+            run_grouping(
+                starting_flight_number=next_number,
+            )
+
+            # Step 3: standalone REFF and standalone video -> items 3 and 4.
+            standalone_reff = push_reff(
+                ISR_SERIAL,
+                "RTT_TEST_C09_STANDALONE.reff",
+                ts(9, 0, 0),
+            )
+            standalone_video = push_video(
+                TABLET_SERIAL,
+                "RTT_TEST_C09_STANDALONE.mp4",
+                ts(9, 20, 0),
+            )
+            cleanup[ISR_SERIAL].append(standalone_reff)
+            cleanup[TABLET_SERIAL].append(standalone_video)
+
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[standalone_reff],
+            )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                video_files=[standalone_video],
+            )
+
+            run_grouping(
+                starting_flight_number=3,
+            )
+
+            assert grouping.get_next_flight_number() == 5
+
+            (case_dir / "NUMBERING_MAP.txt").write_text(
+                "1 = Flight_01\n"
+                "2 = Flight_02\n"
+                "3 = standalone REFF\n"
+                "4 = standalone video\n"
+                "5 = next created flight (must be Flight_05)\n",
+                encoding="utf-8",
+            )
+
+            # Step 4: compute next number BEFORE pulling new files, just like run_extraction.
+            next_number = grouping.get_next_flight_number()
+            assert next_number == 5
+
+            racer_5 = push_reff(
+                TABLET_SERIAL,
+                "RTT_TEST_C09_RACER_5.reff",
+                ts(10, 0, 0),
+            )
+            video_5 = push_video(
+                TABLET_SERIAL,
+                "RTT_TEST_C09_RACER_5.mp4",
+                ts(10, 0, 20),
+            )
+            cleanup[TABLET_SERIAL].extend(
+                [
+                    racer_5,
+                    video_5,
+                ]
+            )
+
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_5],
+                video_files=[video_5],
+            )
+
+            run_grouping(
+                starting_flight_number=next_number,
+            )
+
+            flight_names = {
+                path.name
+                for path in dump_dir.iterdir()
+                if path.is_dir()
+                and path.name.startswith("Flight_")
+            }
+
+            assert any(
+                name.startswith("Flight_01_")
+                for name in flight_names
+            )
+            assert any(
+                name.startswith("Flight_02_")
+                for name in flight_names
+            )
+            assert any(
+                name.startswith("Flight_05_")
+                for name in flight_names
+            )
+            assert not any(
+                name.startswith("Flight_03_")
+                for name in flight_names
+            )
+            assert not any(
+                name.startswith("Flight_04_")
+                for name in flight_names
+            )
+
+            assert (
+                dump_dir / "ISR_RTT_TEST_C09_STANDALONE.reff"
+            ).is_file()
+            assert (
+                dump_dir / "VIDEO_RACER_RTT_TEST_C09_STANDALONE.mp4"
+            ).is_file()
+        finally:
+            cleanup_remote(cleanup)
 
 
-def test_case_11_paths_update_after_reff_and_video_move(
-    tmp_path: Path,
+def test_case_10_closest_match_wins_within_same_priority(
+    monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
 ) -> None:
-    """FlightFile.path follows both REFF and video moves."""
+    """Two existing Priority 1 flights: closest same-device end time wins."""
 
-    reff_path = create_reff(
-        tmp_path,
-        DeviceType.ISR,
-        ts(10, 30, 0),
-    )
-    video_path = create_video(
-        tmp_path,
-        DeviceType.ISR,
-        ts(10, 30, 20),
-    )
+    del connected_test_devices
+    ensure_real_remote_directories()
 
-    reff = FlightFile(
-        filename=reff_path.name,
-        path=str(reff_path),
-        device_type=DeviceType.ISR,
-        file_type=FlightFileType.REFF,
-        mtime=ts(10, 30, 0),
-        size=reff_path.stat().st_size,
-    )
+    cleanup = {
+        ISR_SERIAL: [],
+        TABLET_SERIAL: [],
+    }
 
-    video = FlightFile(
-        filename=video_path.name,
-        path=str(video_path),
-        device_type=DeviceType.ISR,
-        file_type=FlightFileType.VIDEO,
-        mtime=ts(10, 30, 20),
-        size=video_path.stat().st_size,
-    )
+    with visible_case(
+        "Case_10_Closest_Match",
+        title="Multiple matches in the same priority",
+        purpose=(
+            "Create two real flight folders sequentially so they can be close in "
+            "time, then verify a RACER video chooses the closest Priority 1 flight."
+        ),
+        setup=(
+            "Flight 1 RACER REFF: 10:19:10\n"
+            "Flight 2 RACER REFF: 10:19:40\n"
+            "RACER video: 10:20:00\n"
+            "Both are Priority 1; Flight 2 is closer."
+        ),
+        expected=(
+            "Two flight folders remain visible.\n"
+            "The RACER video is moved into Flight_02."
+        ),
+    ) as (_, dump_dir):
+        patch_dump(monkeypatch, dump_dir)
 
-    flight_dir = tmp_path / "Flight_01"
-    flight_dir.mkdir()
+        try:
+            # Create Flight_01.
+            racer_1 = push_reff(
+                TABLET_SERIAL,
+                "RTT_TEST_C10_RACER_1.reff",
+                ts(10, 19, 10),
+            )
+            isr_1 = push_reff(
+                ISR_SERIAL,
+                "RTT_TEST_C10_ISR_1.reff",
+                ts(10, 19, 15),
+            )
+            cleanup[TABLET_SERIAL].append(racer_1)
+            cleanup[ISR_SERIAL].append(isr_1)
 
-    grouping.move_flight_files(
-        str(flight_dir),
-        [reff],
-    )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_1],
+            )
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_1],
+            )
+            flights_1, _ = run_grouping(
+                starting_flight_number=1,
+            )
+            assert len(flights_1) == 1
 
-    flight = Flight(
-        number=1,
-        name="Flight_01",
-        path=str(flight_dir),
-        reff_files=[reff],
-    )
+            # Create Flight_02 in a separate extraction so close times stay separate.
+            racer_2 = push_reff(
+                TABLET_SERIAL,
+                "RTT_TEST_C10_RACER_2.reff",
+                ts(10, 19, 40),
+                source=SOURCE_REFF_2,
+            )
+            isr_2 = push_reff(
+                ISR_SERIAL,
+                "RTT_TEST_C10_ISR_2.reff",
+                ts(10, 19, 45),
+                source=SOURCE_REFF_2,
+            )
+            cleanup[TABLET_SERIAL].append(racer_2)
+            cleanup[ISR_SERIAL].append(isr_2)
 
-    assert grouping.attach_video_to_flight(
-        flight,
-        video,
-    )
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_2],
+            )
+            process_role(
+                monkeypatch,
+                serial=ISR_SERIAL,
+                device_type="ISR",
+                reff_files=[isr_2],
+            )
+            flights_2, _ = run_grouping(
+                starting_flight_number=2,
+            )
+            assert len(flights_2) == 1
 
-    assert Path(reff.path).parent == flight_dir
-    assert Path(video.path).parent == flight_dir
-    assert Path(reff.path).is_file()
-    assert Path(video.path).is_file()
+            all_flights = [
+                flights_1[0],
+                flights_2[0],
+            ]
+
+            racer_video = push_video(
+                TABLET_SERIAL,
+                "RTT_TEST_C10_RACER.mp4",
+                ts(10, 20, 0),
+            )
+            cleanup[TABLET_SERIAL].append(racer_video)
+
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                video_files=[racer_video],
+            )
+
+            videos = grouping.get_video_files()
+            assert len(videos) == 1
+
+            matched = grouping.find_best_existing_flight_for_video(
+                videos[0],
+                all_flights,
+            )
+
+            assert matched is not None
+            assert matched.number == 2
+            assert grouping.attach_video_to_flight(
+                matched,
+                videos[0],
+            )
+            assert len(all_flights[1].videos) == 1
+            assert all_flights[0].videos == []
+        finally:
+            cleanup_remote(cleanup)
+
+
+def test_case_11_paths_update_after_real_moves(
+    monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
+) -> None:
+    """FlightFile.path points at actual moved files after real-device transfer."""
+
+    del connected_test_devices
+    ensure_real_remote_directories()
+
+    cleanup = {
+        TABLET_SERIAL: [],
+    }
+
+    with visible_case(
+        "Case_11_Path_Update",
+        title="FlightFile path update",
+        purpose=(
+            "Verify that after files are transferred from the real Tablet and "
+            "moved into a flight folder, each FlightFile.path points to its new "
+            "real Desktop location."
+        ),
+        setup=(
+            "RACER REFF: 10:30:00\n"
+            "RACER video: 10:30:20"
+        ),
+        expected=(
+            "One Flight_01 folder.\n"
+            "Both FlightFile.path values point inside that folder.\n"
+            "Both target files physically exist."
+        ),
+    ) as (_, dump_dir):
+        patch_dump(monkeypatch, dump_dir)
+
+        racer_reff = push_reff(
+            TABLET_SERIAL,
+            "RTT_TEST_C11_RACER.reff",
+            ts(10, 30, 0),
+        )
+        racer_video = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C11_RACER.mp4",
+            ts(10, 30, 20),
+        )
+
+        cleanup[TABLET_SERIAL].extend(
+            [
+                racer_reff,
+                racer_video,
+            ]
+        )
+
+        try:
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                reff_files=[racer_reff],
+                video_files=[racer_video],
+            )
+
+            flights, warnings = run_grouping(
+                starting_flight_number=1,
+            )
+
+            assert warnings == []
+            assert len(flights) == 1
+
+            flight = flights[0]
+
+            for file_info in (
+                flight.reff_files
+                + flight.videos
+            ):
+                assert Path(file_info.path).parent == Path(flight.path)
+                assert Path(file_info.path).is_file()
+        finally:
+            cleanup_remote(cleanup)
