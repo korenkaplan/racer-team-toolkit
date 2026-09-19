@@ -4,7 +4,7 @@ from racer_team_toolkit.config import (
     REFF_EXTRACTOR_CHOICES,
     REFF_EXTRACTOR_HEADER,
 )
-from racer_team_toolkit.reff_extractor.functions import (
+from racer_team_toolkit.reff_extractor.extraction import (
     extract_reff,
     extract_reff_and_videos,
 )
