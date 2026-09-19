@@ -1,88 +1,142 @@
 # REFF extractor integration tests
 
-This test environment is split into two completely separate flows:
+This environment now uses the real Android devices and the real application
+paths for every integration case.
 
-1. normal extraction/grouping tests with correct Android clocks
-2. Tablet-only Time Adjustment tests with an intentionally wrong Tablet clock
+## Fixed physical devices
 
-Do not run them at the same time.
+- ISR: `f7b2909c`
+- Tablet: `R52Y901B9AP`
 
-## Fixed environment
+There is no separate RACER serial configured. When a test needs a logical RACER
+stream, the physical Tablet is reused as the transport device and processed with
+the RACER logical prefix. The files still travel through a real Android device
+and the real Android filesystem paths.
 
-- ISR serial: `f7b2909c`
-- Tablet serial: `R52Y901B9AP`
-- Master source folder:
-  `/Users/korenkaplan/Desktop/Test New Extraction Logic`
+## Real Android paths
 
-Expected source files:
+- REFF: `/sdcard/Records`
+- Videos: `/sdcard/Eyesatop-Records/Screen-Videos`
+
+The tests do not use a fake remote test directory.
+
+The tests select only the exact files created for each case when running the
+transfer code, so unrelated files already on the device are not pulled into the
+test result.
+
+## Master source files
+
+The test assets always come from:
+
+```text
+/Users/korenkaplan/Desktop/Test New Extraction Logic
+```
+
+Expected files:
 
 - `01_08_2024_08_27.reff`
 - `01_08_2024_08_28.reff`
 - `ScreenRec_2024-08-01_08-27.mp4`
 
-Test ADB data uses isolated directories under `/sdcard/racer-team-toolkit-tests`.
-The suite does not need to clear the normal production Records or Screen-Videos
-directories.
+They are pushed directly from this folder to the Android device. There is no
+local staging copy.
 
-## Normal tests
+## Run one normal case at a time
 
-The ISR and Tablet clocks should both be correct.
-
-Run all normal automated tests:
-
-```bash
-RUN_REFF_INTEGRATION_TESTS=1 uv run pytest   tests/integration/reff_extractor/test_grouping_cases.py   tests/integration/reff_extractor/test_live_devices.py -v
-```
-
-Run cases one by one and preserve their visible Desktop output:
+Both Android clocks should be correct before running normal tests.
 
 ```bash
 uv run python -m tests.integration.reff_extractor.manual_runner
 ```
 
-Desktop results are stored under:
+Every case creates a visible Desktop folder under:
 
 ```text
 ~/Desktop/Reff Integration Tests/
 ```
 
-## Time Adjustment tests
-
-These tests are separate because they require an intentionally wrong Android
-clock.
-
-Only the Tablet is used for the wrong-clock tests.
-
-Fixed test clock:
+Every case folder contains:
 
 ```text
-Device: R52Y901B9AP
-Date:   2024-08-01
-Time:   08:30:00
+TEST_DESCRIPTION.txt
+ACTUAL_RESULT.txt
+AUTOMATED_RESULT.txt
+DUMP/
 ```
 
-Set the Tablet date/time manually before starting. The test verifies the date
-before making any file corrections.
+The description explains the test setup and expected result. `ACTUAL_RESULT.txt`
+contains the actual resulting tree. The `DUMP/` folder is preserved so it can
+be opened manually.
 
-Run the Time Adjustment menu:
+### Numbering test
+
+Case 09 intentionally leaves this visible state before creating the next flight:
+
+```text
+1 = Flight_01
+2 = Flight_02
+3 = standalone REFF
+4 = standalone video
+5 = next created flight
+```
+
+The final visible result must contain `Flight_01`, `Flight_02`, the standalone
+REFF/video, and `Flight_05`.
+
+The case folder also contains `NUMBERING_MAP.txt`.
+
+## Run all normal real-device cases
+
+```bash
+RUN_REFF_INTEGRATION_TESTS=1 uv run pytest   tests/integration/reff_extractor/test_grouping_cases.py -v -s
+```
+
+## Time Adjustment tests
+
+Time Adjustment is deliberately separate because it requires a wrong Android
+clock.
+
+Only the Tablet should be changed.
+
+Set the Tablet manually to:
+
+```text
+Date: 2024-08-01
+Time: 08:30:00
+```
+
+Then run:
 
 ```bash
 uv run python -m tests.integration.reff_extractor.time_adjustment_runner
 ```
 
-Or run the Time Adjustment pytest file directly:
+The Time Adjustment output is preserved under:
 
-```bash
-RUN_REFF_TIME_ADJUSTMENT_TESTS=1 uv run pytest   tests/integration/reff_extractor/test_time_adjustment_live.py -v
+```text
+~/Desktop/Reff Integration Tests/Time Adjustment/
 ```
 
-The Time Adjustment tests cover:
+Both Time Adjustment cases now contain their own `DUMP/` folder and
+`TEST_DESCRIPTION.txt`.
 
-- REFF filename correction
-- video filename correction
-- corrected modification timestamps
-- resulting flight-folder timestamp
-- filename collision handling using `_Number_1`
+Case 01 validates:
 
-After the Time Adjustment tests, manually restore the Tablet to automatic/current
-date and time before running the normal extraction tests again.
+- timestamp correction
+- REFF rename
+- video rename
+- extraction from the real Tablet paths
+- the corrected flight-folder timestamp
+
+Case 02 validates:
+
+- filename collision handling
+- `_Number_1`
+- both files still exist
+- both files are copied into the visible `DUMP/`
+
+The tests fail before setup if a generated corrected filename already exists on
+the Tablet, rather than deleting or overwriting a potentially real file.
+
+After Time Adjustment testing, restore the Tablet to automatic/current date and
+time before running normal tests again.
