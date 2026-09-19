@@ -258,6 +258,56 @@ def write_actual_tree(
     )
 
 
+
+def write_warnings(
+    case_dir: Path,
+    warnings: list,
+) -> None:
+    """Persist grouping warnings and echo them to the terminal."""
+
+    lines = [
+        "GROUPING WARNINGS",
+        "=" * 72,
+        "",
+    ]
+
+    if not warnings:
+        lines.append("No warnings.")
+        print("Warnings: none")
+    else:
+        print(f"Warnings: {len(warnings)}")
+
+        for index, warning in enumerate(
+            warnings,
+            start=1,
+        ):
+            flight_name = (
+                warning.flight_name
+                if warning.flight_name is not None
+                else "<standalone>"
+            )
+
+            lines.extend(
+                [
+                    f"Warning {index}",
+                    f"Device: {warning.device_type.value}",
+                    f"Video: {warning.filename}",
+                    f"Flight: {flight_name}",
+                    f"Message: {warning.message}",
+                    "",
+                ]
+            )
+
+            print(
+                f"  [{index}] {warning.device_type.value}: "
+                f"{warning.message}"
+            )
+
+    (case_dir / "WARNINGS.txt").write_text(
+        "\n".join(lines).rstrip() + "\n",
+        encoding="utf-8",
+    )
+
 def write_status(
     case_dir: Path,
     status: str,
