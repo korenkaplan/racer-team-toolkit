@@ -519,11 +519,12 @@ def test_time_adjustment_collision_uses_number_suffix(
         ),
         expected=(
             "DUMP/ exists.\n"
-            "Both videos are visible as standalone files in DUMP/.\n"
+            "The two related videos create exactly one Flight_01 folder.\n"
+            "The flight contains both videos and zero REFF files.\n"
             f"VIDEO_TABLET_{corrected_name}\n"
             f"VIDEO_TABLET_{numbered_name}\n"
             "No video is overwritten.\n"
-            "No flight folder is created because this case contains videos only."
+            "Both videos produce missing-REFF warnings."
         ),
     ) as (case_dir, dump_dir):
         patch_dump(
@@ -589,19 +590,6 @@ def test_time_adjustment_collision_uses_number_suffix(
                 ],
             )
 
-            expected_original = (
-                dump_dir
-                / f"VIDEO_TABLET_{corrected_name}"
-            )
-            expected_numbered = (
-                dump_dir
-                / f"VIDEO_TABLET_{numbered_name}"
-            )
-
-            assert expected_original.is_file()
-            assert expected_numbered.is_file()
-
-            # This collision test contains no REFFs, so both videos stay standalone.
             reff_result = grouping.group_files_into_flights(
                 starting_flight_number=1,
             )
@@ -611,16 +599,31 @@ def test_time_adjustment_collision_uses_number_suffix(
                 starting_flight_number=reff_result.next_flight_number,
             )
 
-            assert video_result.flights == []
+            assert len(video_result.flights) == 1
+
+            flight = video_result.flights[0]
+
+            assert flight.reff_files == []
+            assert len(flight.videos) == 2
             assert len(video_result.warnings) == 2
+            assert all(
+                warning.flight_name == flight.name
+                for warning in video_result.warnings
+            )
 
             write_warnings(
                 case_dir,
                 video_result.warnings,
             )
 
-            assert expected_original.is_file()
-            assert expected_numbered.is_file()
+            assert (
+                Path(flight.path)
+                / f"VIDEO_TABLET_{corrected_name}"
+            ).is_file()
+            assert (
+                Path(flight.path)
+                / f"VIDEO_TABLET_{numbered_name}"
+            ).is_file()
         finally:
             remove_remote_files(
                 TABLET_SERIAL,
