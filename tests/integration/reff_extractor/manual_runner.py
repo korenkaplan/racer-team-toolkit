@@ -141,13 +141,9 @@ def run_case(
 
     print()
     print("=" * 76)
-    print(
-        "AUTOMATED RESULT: PASS"
-        if result.returncode == 0
-        else "AUTOMATED RESULT: FAIL"
-    )
+    print("AUTOMATED RESULT: PASS" if result.returncode == 0 else "AUTOMATED RESULT: FAIL")
     print()
-    print(f"Open this folder and compare:")
+    print("Open this folder and compare:")
     print(f"  {output_dir}")
     print()
     print("Read:")

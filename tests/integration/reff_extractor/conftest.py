@@ -38,10 +38,7 @@ def require_explicit_integration_test_opt_in() -> None:
     ]
 
     if missing:
-        pytest.fail(
-            "Missing REFF integration source files:\n"
-            + "\n".join(missing)
-        )
+        pytest.fail("Missing REFF integration source files:\n" + "\n".join(missing))
 
 
 @pytest.fixture(scope="session")
@@ -58,9 +55,6 @@ def connected_test_devices() -> set[str]:
     missing = required - serials
 
     if missing:
-        pytest.fail(
-            "Required ADB test devices are not connected: "
-            + ", ".join(sorted(missing))
-        )
+        pytest.fail("Required ADB test devices are not connected: " + ", ".join(sorted(missing)))
 
     return serials

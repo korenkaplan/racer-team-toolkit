@@ -8,10 +8,7 @@ from racer_team_toolkit.adb.device_detection import DeviceType
 from racer_team_toolkit.reff_extractor import grouping, transfer
 from racer_team_toolkit.reff_extractor.grouping_dataclasses import (
     Flight,
-    FlightFile,
-    FlightFileType,
 )
-
 from tests.integration.reff_extractor.config import (
     ISR_SERIAL,
     REAL_REMOTE_REFF_PATH,
@@ -236,11 +233,7 @@ def test_case_01_normal_multi_device_flight(
             "The RACER logical stream uses the physical Tablet because no separate "
             "RACER serial is configured in this test environment."
         ),
-        setup=(
-            "ISR REFF: 08:00:00\n"
-            "RACER REFF: 08:00:10\n"
-            "RACER video: 08:00:40"
-        ),
+        setup=("ISR REFF: 08:00:00\nRACER REFF: 08:00:10\nRACER video: 08:00:40"),
         expected=(
             "Exactly one Flight_01 folder.\n"
             "It contains ISR REFF + RACER REFF + RACER video.\n"
@@ -304,10 +297,7 @@ def test_case_01_normal_multi_device_flight(
             assert warnings == []
             assert len(flights[0].reff_files) == 2
             assert len(flights[0].videos) == 1
-            assert {
-                reff.device_type
-                for reff in flights[0].reff_files
-            } == {
+            assert {reff.device_type for reff in flights[0].reff_files} == {
                 DeviceType.ISR,
                 DeviceType.RACER,
             }
@@ -439,11 +429,7 @@ def test_case_03_cross_device_video_creates_flight_from_standalone_reff(
             "Verify that one standalone ISR REFF can be promoted into a flight "
             "when a time-matching RACER video is found."
         ),
-        setup=(
-            "ISR REFF: 08:20:00\n"
-            "RACER video: 08:20:20\n"
-            "RACER REFF: intentionally missing"
-        ),
+        setup=("ISR REFF: 08:20:00\nRACER video: 08:20:20\nRACER REFF: intentionally missing"),
         expected=(
             "Exactly one Flight_01 folder containing ISR REFF + RACER video.\n"
             "Exactly one warning for missing RACER REFF."
@@ -517,14 +503,8 @@ def test_case_04_same_device_standalone_reff_and_video(
             "Verify that a standalone RACER REFF and same-device RACER video "
             "create a new flight with no warning."
         ),
-        setup=(
-            "RACER REFF: 08:30:00\n"
-            "RACER video: 08:30:20"
-        ),
-        expected=(
-            "Exactly one Flight_01 folder containing RACER REFF + RACER video.\n"
-            "No warning."
-        ),
+        setup=("RACER REFF: 08:30:00\nRACER video: 08:30:20"),
+        expected=("Exactly one Flight_01 folder containing RACER REFF + RACER video.\nNo warning."),
     ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
@@ -677,19 +657,13 @@ def test_case_05_same_device_priority_beats_cross_device_fallback(
             racer_flights = [
                 flight
                 for flight in flights
-                if any(
-                    reff.device_type == DeviceType.RACER
-                    for reff in flight.reff_files
-                )
+                if any(reff.device_type == DeviceType.RACER for reff in flight.reff_files)
             ]
 
             assert len(racer_flights) == 1
             assert len(racer_flights[0].videos) == 1
             assert racer_flights[0].videos[0].device_type == DeviceType.RACER
-            assert all(
-                warning.device_type != DeviceType.RACER
-                for warning in warnings
-            )
+            assert all(warning.device_type != DeviceType.RACER for warning in warnings)
         finally:
             cleanup_remote(cleanup)
 
@@ -717,14 +691,9 @@ def test_case_06_priority_one_beats_priority_two_within_same_device(
             "within the 8-minute Priority 2 window."
         ),
         setup=(
-            "Flight A RACER REFF: 09:10:00\n"
-            "RACER video: 09:10:40\n"
-            "Flight B RACER REFF: 09:12:40"
+            "Flight A RACER REFF: 09:10:00\nRACER video: 09:10:40\nFlight B RACER REFF: 09:12:40"
         ),
-        expected=(
-            "RACER video is placed in Flight A.\n"
-            "Flight B remains without the video."
-        ),
+        expected=("RACER video is placed in Flight A.\nFlight B remains without the video."),
     ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
@@ -785,11 +754,7 @@ def test_case_06_priority_one_beats_priority_two_within_same_device(
             )
 
             assert len(flights) == 2
-            flights_with_video = [
-                flight
-                for flight in flights
-                if flight.videos
-            ]
+            flights_with_video = [flight for flight in flights if flight.videos]
             assert len(flights_with_video) == 1
 
             selected_racer_time = max(
@@ -823,15 +788,8 @@ def test_case_07_priority_two_used_when_no_priority_one(
             "Verify that when no valid Priority 1 flight exists, a same-device "
             "flight ending five minutes after the video is accepted."
         ),
-        setup=(
-            "RACER video: 09:20:00\n"
-            "Flight RACER REFF: 09:25:00\n"
-            "Flight ISR REFF: 09:25:05"
-        ),
-        expected=(
-            "Exactly one flight folder.\n"
-            "The RACER video is inside that flight."
-        ),
+        setup=("RACER video: 09:20:00\nFlight RACER REFF: 09:25:00\nFlight ISR REFF: 09:25:05"),
+        expected=("Exactly one flight folder.\nThe RACER video is inside that flight."),
     ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
@@ -910,11 +868,7 @@ def test_case_08_outside_eight_minute_window_stays_standalone(
             "Verify that a video is not forced into a flight when the next "
             "eligible flight ends ten minutes later."
         ),
-        setup=(
-            "RACER video: 09:30:00\n"
-            "ISR REFF: 09:40:00\n"
-            "TABLET REFF: 09:40:05"
-        ),
+        setup=("RACER video: 09:30:00\nISR REFF: 09:40:00\nTABLET REFF: 09:40:05"),
         expected=(
             "One normal flight folder containing ISR + TABLET REFFs.\n"
             "RACER video remains as a standalone file in DUMP/.\n"
@@ -981,9 +935,7 @@ def test_case_08_outside_eight_minute_window_stays_standalone(
             assert len(warnings) == 1
             assert warnings[0].flight_name is None
 
-            standalone = list(
-                dump_dir.glob("VIDEO_RACER_RTT_TEST_C08_RACER.mp4")
-            )
+            standalone = list(dump_dir.glob("VIDEO_RACER_RTT_TEST_C08_RACER.mp4"))
             assert len(standalone) == 1
         finally:
             cleanup_remote(cleanup)
@@ -1172,37 +1124,17 @@ def test_case_09_repeated_extraction_numbering_continuity(
             flight_names = {
                 path.name
                 for path in dump_dir.iterdir()
-                if path.is_dir()
-                and path.name.startswith("Flight_")
+                if path.is_dir() and path.name.startswith("Flight_")
             }
 
-            assert any(
-                name.startswith("Flight_01_")
-                for name in flight_names
-            )
-            assert any(
-                name.startswith("Flight_02_")
-                for name in flight_names
-            )
-            assert any(
-                name.startswith("Flight_05_")
-                for name in flight_names
-            )
-            assert not any(
-                name.startswith("Flight_03_")
-                for name in flight_names
-            )
-            assert not any(
-                name.startswith("Flight_04_")
-                for name in flight_names
-            )
+            assert any(name.startswith("Flight_01_") for name in flight_names)
+            assert any(name.startswith("Flight_02_") for name in flight_names)
+            assert any(name.startswith("Flight_05_") for name in flight_names)
+            assert not any(name.startswith("Flight_03_") for name in flight_names)
+            assert not any(name.startswith("Flight_04_") for name in flight_names)
 
-            assert (
-                dump_dir / "ISR_RTT_TEST_C09_STANDALONE.reff"
-            ).is_file()
-            assert (
-                dump_dir / "VIDEO_RACER_RTT_TEST_C09_STANDALONE.mp4"
-            ).is_file()
+            assert (dump_dir / "ISR_RTT_TEST_C09_STANDALONE.reff").is_file()
+            assert (dump_dir / "VIDEO_RACER_RTT_TEST_C09_STANDALONE.mp4").is_file()
         finally:
             cleanup_remote(cleanup)
 
@@ -1234,10 +1166,7 @@ def test_case_10_closest_match_wins_within_same_priority(
             "RACER video: 10:20:00\n"
             "Both are Priority 1; Flight 2 is closer."
         ),
-        expected=(
-            "Two flight folders remain visible.\n"
-            "The RACER video is moved into Flight_02."
-        ),
+        expected=("Two flight folders remain visible.\nThe RACER video is moved into Flight_02."),
     ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
 
@@ -1366,10 +1295,7 @@ def test_case_11_paths_update_after_real_moves(
             "moved into a flight folder, each FlightFile.path points to its new "
             "real Desktop location."
         ),
-        setup=(
-            "RACER REFF: 10:30:00\n"
-            "RACER video: 10:30:20"
-        ),
+        setup=("RACER REFF: 10:30:00\nRACER video: 10:30:20"),
         expected=(
             "One Flight_01 folder.\n"
             "Both FlightFile.path values point inside that folder.\n"
@@ -1418,10 +1344,7 @@ def test_case_11_paths_update_after_real_moves(
 
             flight = flights[0]
 
-            for file_info in (
-                flight.reff_files
-                + flight.videos
-            ):
+            for file_info in flight.reff_files + flight.videos:
                 assert Path(file_info.path).parent == Path(flight.path)
                 assert Path(file_info.path).is_file()
         finally:
@@ -1519,27 +1442,15 @@ def test_case_12_multiple_related_videos_without_reff_create_flight(
             assert flight.reff_files == []
             assert len(flight.videos) == 3
             assert len(warnings) == 3
-            assert all(
-                warning.flight_name == flight.name
-                for warning in warnings
-            )
+            assert all(warning.flight_name == flight.name for warning in warnings)
 
             flight_dir = Path(
                 flight.path,
             )
 
-            assert (
-                flight_dir
-                / "VIDEO_RACER_RTT_TEST_C12_1.mp4"
-            ).is_file()
-            assert (
-                flight_dir
-                / "VIDEO_RACER_RTT_TEST_C12_2.mp4"
-            ).is_file()
-            assert (
-                flight_dir
-                / "VIDEO_RACER_RTT_TEST_C12_3.mp4"
-            ).is_file()
+            assert (flight_dir / "VIDEO_RACER_RTT_TEST_C12_1.mp4").is_file()
+            assert (flight_dir / "VIDEO_RACER_RTT_TEST_C12_2.mp4").is_file()
+            assert (flight_dir / "VIDEO_RACER_RTT_TEST_C12_3.mp4").is_file()
         finally:
             cleanup_remote(
                 cleanup,

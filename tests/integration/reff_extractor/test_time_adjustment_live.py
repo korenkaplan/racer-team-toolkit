@@ -15,7 +15,6 @@ from racer_team_toolkit.reff_extractor.time_adjustment_functions import (
     build_corrected_video_filename,
     get_device_datetime,
 )
-
 from tests.integration.reff_extractor.config import (
     REAL_REMOTE_REFF_PATH,
     REAL_REMOTE_VIDEO_PATH,
@@ -53,14 +52,10 @@ def require_time_adjustment_opt_in() -> None:
     """Require explicit opt-in and the fixed wrong date on the Tablet."""
 
     if os.getenv(TIME_ADJUSTMENT_RUN_ENV_VAR) != "1":
-        pytest.skip(
-            f"Set {TIME_ADJUSTMENT_RUN_ENV_VAR}=1 to run Tablet time-adjustment tests."
-        )
+        pytest.skip(f"Set {TIME_ADJUSTMENT_RUN_ENV_VAR}=1 to run Tablet time-adjustment tests.")
 
     if TABLET_SERIAL not in connected_serials():
-        pytest.fail(
-            f"Tablet {TABLET_SERIAL} is not connected."
-        )
+        pytest.fail(f"Tablet {TABLET_SERIAL} is not connected.")
 
     tablet = build_test_device(
         TABLET_SERIAL,
@@ -70,9 +65,7 @@ def require_time_adjustment_opt_in() -> None:
     device_datetime = get_device_datetime(tablet)
 
     if device_datetime is None:
-        pytest.fail(
-            "Could not read Tablet date/time."
-        )
+        pytest.fail("Could not read Tablet date/time.")
 
     expected_date = datetime.strptime(
         TIME_ADJUSTMENT_WRONG_DATE,
@@ -149,9 +142,7 @@ def visible_time_case(
     setup: str,
     expected: str,
 ):
-    case_dir = recreate_case_directory(
-        f"Time Adjustment/{case_name}"
-    )
+    case_dir = recreate_case_directory(f"Time Adjustment/{case_name}")
     dump_dir = case_dir / "DUMP"
     dump_dir.mkdir()
 
@@ -192,11 +183,7 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
 ) -> None:
     """Corrected names and mtimes must drive the visible flight-folder name."""
 
-    ensure_real_remote_directories(
-        (
-            TABLET_SERIAL,
-        )
-    )
+    ensure_real_remote_directories((TABLET_SERIAL,))
 
     tablet = build_test_device(
         TABLET_SERIAL,
@@ -207,12 +194,8 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
         second=0,
         microsecond=0,
     )
-    corrected_reff_timestamp = int(
-        corrected_datetime.timestamp()
-    )
-    corrected_video_timestamp = (
-        corrected_reff_timestamp + 20
-    )
+    corrected_reff_timestamp = int(corrected_datetime.timestamp())
+    corrected_video_timestamp = corrected_reff_timestamp + 20
 
     wrong_reff_timestamp = datetime(
         2024,
@@ -231,15 +214,9 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
         20,
     ).timestamp()
 
-    old_reff_path = real_reff_path(
-        "RTT_TEST_TIME_ADJUSTMENT.reff"
-    )
-    old_video_name = (
-        "ScreenRec_2099-12-31_23-59-59.mp4"
-    )
-    old_video_path = real_video_path(
-        old_video_name
-    )
+    old_reff_path = real_reff_path("RTT_TEST_TIME_ADJUSTMENT.reff")
+    old_video_name = "ScreenRec_2099-12-31_23-59-59.mp4"
+    old_video_path = real_video_path(old_video_name)
 
     corrected_reff_name = build_corrected_reff_filename(
         corrected_reff_timestamp,
@@ -251,12 +228,8 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
 
     assert corrected_video_name is not None
 
-    corrected_reff_path = real_reff_path(
-        corrected_reff_name
-    )
-    corrected_video_path = real_video_path(
-        corrected_video_name
-    )
+    corrected_reff_path = real_reff_path(corrected_reff_name)
+    corrected_video_path = real_video_path(corrected_video_name)
 
     cleanup_paths = [
         old_reff_path,
@@ -283,8 +256,7 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
             generated_path,
         ):
             pytest.fail(
-                "Time Adjustment test would collide with an existing real file: "
-                f"{generated_path}"
+                f"Time Adjustment test would collide with an existing real file: {generated_path}"
             )
 
     with visible_time_case(
@@ -335,16 +307,12 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
                 [
                     FileTimeCorrection(
                         file_path=old_reff_path,
-                        current_timestamp=int(
-                            wrong_reff_timestamp
-                        ),
+                        current_timestamp=int(wrong_reff_timestamp),
                         corrected_timestamp=corrected_reff_timestamp,
                     ),
                     FileTimeCorrection(
                         file_path=old_video_path,
-                        current_timestamp=int(
-                            wrong_video_timestamp
-                        ),
+                        current_timestamp=int(wrong_video_timestamp),
                         corrected_timestamp=corrected_video_timestamp,
                     ),
                 ],
@@ -352,22 +320,28 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
 
             assert corrected_count == 2
 
-            assert run_adb(
-                TABLET_SERIAL,
-                "shell",
-                "test",
-                "-f",
-                corrected_reff_path,
-                check=False,
-            ).returncode == 0
-            assert run_adb(
-                TABLET_SERIAL,
-                "shell",
-                "test",
-                "-f",
-                corrected_video_path,
-                check=False,
-            ).returncode == 0
+            assert (
+                run_adb(
+                    TABLET_SERIAL,
+                    "shell",
+                    "test",
+                    "-f",
+                    corrected_reff_path,
+                    check=False,
+                ).returncode
+                == 0
+            )
+            assert (
+                run_adb(
+                    TABLET_SERIAL,
+                    "shell",
+                    "test",
+                    "-f",
+                    corrected_video_path,
+                    check=False,
+                ).returncode
+                == 0
+            )
 
             process_selected_tablet_files(
                 monkeypatch,
@@ -384,30 +358,16 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
                 starting_flight_number=reff_result.next_flight_number,
             )
 
-            expected_flight_name = (
-                "Flight_01_"
-                + corrected_datetime.strftime(
-                    "%d-%m-%Y_%H-%M-%S"
-                )
-            )
+            expected_flight_name = "Flight_01_" + corrected_datetime.strftime("%d-%m-%Y_%H-%M-%S")
 
             assert len(video_result.flights) == 1
             assert video_result.warnings == []
-            assert (
-                video_result.flights[0].name
-                == expected_flight_name
-            )
+            assert video_result.flights[0].name == expected_flight_name
+
+            assert (dump_dir / expected_flight_name / f"TABLET_{corrected_reff_name}").is_file()
 
             assert (
-                dump_dir
-                / expected_flight_name
-                / f"TABLET_{corrected_reff_name}"
-            ).is_file()
-
-            assert (
-                dump_dir
-                / expected_flight_name
-                / f"VIDEO_TABLET_{corrected_video_name}"
+                dump_dir / expected_flight_name / f"VIDEO_TABLET_{corrected_video_name}"
             ).is_file()
         finally:
             remove_remote_files(
@@ -421,11 +381,7 @@ def test_time_adjustment_collision_uses_number_suffix(
 ) -> None:
     """Video collision rename creates _Number_1 without overwriting."""
 
-    ensure_real_remote_directories(
-        (
-            TABLET_SERIAL,
-        )
-    )
+    ensure_real_remote_directories((TABLET_SERIAL,))
 
     tablet = build_test_device(
         TABLET_SERIAL,
@@ -436,9 +392,7 @@ def test_time_adjustment_collision_uses_number_suffix(
         second=0,
         microsecond=0,
     )
-    corrected_timestamp = int(
-        corrected_datetime.timestamp()
-    )
+    corrected_timestamp = int(corrected_datetime.timestamp())
 
     wrong_timestamp = datetime(
         2024,
@@ -450,9 +404,7 @@ def test_time_adjustment_collision_uses_number_suffix(
     ).timestamp()
 
     old_video_name = "ScreenRec_2024-08-01_08-28.mp4"
-    old_video_path = real_video_path(
-        old_video_name
-    )
+    old_video_path = real_video_path(old_video_name)
 
     corrected_name = build_corrected_video_filename(
         old_video_name,
@@ -460,21 +412,11 @@ def test_time_adjustment_collision_uses_number_suffix(
     )
     assert corrected_name is not None
 
-    corrected_path = real_video_path(
-        corrected_name
-    )
+    corrected_path = real_video_path(corrected_name)
 
-    corrected_name_path = Path(
-        corrected_name
-    )
-    numbered_name = (
-        f"{corrected_name_path.stem}"
-        "_Number_1"
-        f"{corrected_name_path.suffix}"
-    )
-    numbered_path = real_video_path(
-        numbered_name
-    )
+    corrected_name_path = Path(corrected_name)
+    numbered_name = f"{corrected_name_path.stem}_Number_1{corrected_name_path.suffix}"
+    numbered_path = real_video_path(numbered_name)
 
     cleanup_paths = [
         old_video_path,
@@ -554,9 +496,7 @@ def test_time_adjustment_collision_uses_number_suffix(
                 [
                     FileTimeCorrection(
                         file_path=old_video_path,
-                        current_timestamp=int(
-                            wrong_timestamp
-                        ),
+                        current_timestamp=int(wrong_timestamp),
                         corrected_timestamp=corrected_timestamp,
                     ),
                 ],
@@ -564,23 +504,29 @@ def test_time_adjustment_collision_uses_number_suffix(
 
             assert corrected_count == 1
 
-            assert run_adb(
-                TABLET_SERIAL,
-                "shell",
-                "test",
-                "-f",
-                corrected_path,
-                check=False,
-            ).returncode == 0
+            assert (
+                run_adb(
+                    TABLET_SERIAL,
+                    "shell",
+                    "test",
+                    "-f",
+                    corrected_path,
+                    check=False,
+                ).returncode
+                == 0
+            )
 
-            assert run_adb(
-                TABLET_SERIAL,
-                "shell",
-                "test",
-                "-f",
-                numbered_path,
-                check=False,
-            ).returncode == 0
+            assert (
+                run_adb(
+                    TABLET_SERIAL,
+                    "shell",
+                    "test",
+                    "-f",
+                    numbered_path,
+                    check=False,
+                ).returncode
+                == 0
+            )
 
             process_selected_tablet_files(
                 monkeypatch,
@@ -606,24 +552,15 @@ def test_time_adjustment_collision_uses_number_suffix(
             assert flight.reff_files == []
             assert len(flight.videos) == 2
             assert len(video_result.warnings) == 2
-            assert all(
-                warning.flight_name == flight.name
-                for warning in video_result.warnings
-            )
+            assert all(warning.flight_name == flight.name for warning in video_result.warnings)
 
             write_warnings(
                 case_dir,
                 video_result.warnings,
             )
 
-            assert (
-                Path(flight.path)
-                / f"VIDEO_TABLET_{corrected_name}"
-            ).is_file()
-            assert (
-                Path(flight.path)
-                / f"VIDEO_TABLET_{numbered_name}"
-            ).is_file()
+            assert (Path(flight.path) / f"VIDEO_TABLET_{corrected_name}").is_file()
+            assert (Path(flight.path) / f"VIDEO_TABLET_{numbered_name}").is_file()
         finally:
             remove_remote_files(
                 TABLET_SERIAL,

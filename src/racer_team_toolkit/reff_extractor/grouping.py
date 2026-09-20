@@ -240,6 +240,8 @@ def group_videos_into_flights(
         flights=flights,
         warnings=warnings,
     )
+
+
 def collect_reff_files() -> list[FlightFile]:
     """Collect standalone REFF files from the dump directory."""
 
@@ -570,9 +572,7 @@ def get_video_to_video_match(
 ) -> float | None:
     """Return the time difference when two videos are related."""
 
-    time_diff = abs(
-        first_video_time - second_video_time
-    )
+    time_diff = abs(first_video_time - second_video_time)
 
     if time_diff <= MAX_VIDEO_TIME_DIFF:
         return time_diff
@@ -612,6 +612,7 @@ def find_best_standalone_video_for_video(
         key=lambda match: match[0],
     )[1]
 
+
 def find_best_existing_flight_for_video(
     video: FlightFile,
     flights: list[Flight],
@@ -631,16 +632,11 @@ def find_best_existing_flight_for_video(
     for flight in flights:
         if flight.reff_files:
             same_device_reffs = [
-                reff
-                for reff in flight.reff_files
-                if reff.device_type == video.device_type
+                reff for reff in flight.reff_files if reff.device_type == video.device_type
             ]
 
             if same_device_reffs:
-                same_device_end = max(
-                    reff.mtime
-                    for reff in same_device_reffs
-                )
+                same_device_end = max(reff.mtime for reff in same_device_reffs)
 
                 same_device_match = get_video_time_match(
                     video.mtime,
@@ -852,6 +848,7 @@ def create_flight_from_standalone_videos(
         return None
 
     return flight
+
 
 def create_missing_reff_warning(
     video: FlightFile,

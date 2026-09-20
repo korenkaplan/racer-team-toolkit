@@ -1,10 +1,8 @@
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
 from racer_team_toolkit.config import AndroidDevice
-
 from tests.integration.reff_extractor.config import (
     ISR_SERIAL,
     MANUAL_OUTPUT_ROOT,
@@ -67,8 +65,7 @@ def require_fixed_devices() -> None:
 
     if missing:
         raise RuntimeError(
-            "Required ADB test devices are not connected: "
-            + ", ".join(sorted(missing))
+            "Required ADB test devices are not connected: " + ", ".join(sorted(missing))
         )
 
 
@@ -117,7 +114,6 @@ def push_file_direct(
     return remote_path
 
 
-
 def remote_file_exists(
     serial: str,
     remote_path: str,
@@ -135,6 +131,7 @@ def remote_file_exists(
         ).returncode
         == 0
     )
+
 
 def remove_remote_file(
     serial: str,
@@ -262,15 +259,12 @@ def write_actual_tree(
             depth = len(relative.parts) - 1
             prefix = "    " * (depth + 1)
             suffix = "/" if path.is_dir() else ""
-            lines.append(
-                f"{prefix}{relative.name}{suffix}"
-            )
+            lines.append(f"{prefix}{relative.name}{suffix}")
 
     (case_dir / "ACTUAL_RESULT.txt").write_text(
         "\n".join(lines) + "\n",
         encoding="utf-8",
     )
-
 
 
 def write_warnings(
@@ -295,11 +289,7 @@ def write_warnings(
             warnings,
             start=1,
         ):
-            flight_name = (
-                warning.flight_name
-                if warning.flight_name is not None
-                else "<standalone>"
-            )
+            flight_name = warning.flight_name if warning.flight_name is not None else "<standalone>"
 
             lines.extend(
                 [
@@ -312,15 +302,13 @@ def write_warnings(
                 ]
             )
 
-            print(
-                f"  [{index}] {warning.device_type.value}: "
-                f"{warning.message}"
-            )
+            print(f"  [{index}] {warning.device_type.value}: {warning.message}")
 
     (case_dir / "WARNINGS.txt").write_text(
         "\n".join(lines).rstrip() + "\n",
         encoding="utf-8",
     )
+
 
 def write_status(
     case_dir: Path,

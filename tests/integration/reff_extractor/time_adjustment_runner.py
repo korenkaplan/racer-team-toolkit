@@ -62,9 +62,7 @@ def print_menu() -> None:
 def choose_case() -> int:
     while True:
         print_menu()
-        raw = input(
-            "\nSelect a time-adjustment test: "
-        ).strip()
+        raw = input("\nSelect a time-adjustment test: ").strip()
 
         try:
             choice = int(raw)
@@ -111,13 +109,9 @@ def run_case(
 
     print()
     print("=" * 76)
-    print(
-        "AUTOMATED RESULT: PASS"
-        if result.returncode == 0
-        else "AUTOMATED RESULT: FAIL"
-    )
+    print("AUTOMATED RESULT: PASS" if result.returncode == 0 else "AUTOMATED RESULT: FAIL")
     print()
-    print(f"Open this folder and compare:")
+    print("Open this folder and compare:")
     print(f"  {output_dir}")
     print()
     print("Read:")
@@ -139,9 +133,7 @@ def main() -> None:
         if choice == 0:
             return
 
-        title, target, case_folder = CASES[
-            choice - 1
-        ]
+        title, target, case_folder = CASES[choice - 1]
 
         run_case(
             choice,
@@ -150,10 +142,7 @@ def main() -> None:
             case_folder,
         )
 
-        input(
-            "\nPress Enter when you are finished "
-            "inspecting this case..."
-        )
+        input("\nPress Enter when you are finished inspecting this case...")
 
 
 if __name__ == "__main__":
