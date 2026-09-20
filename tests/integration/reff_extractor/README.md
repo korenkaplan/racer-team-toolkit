@@ -85,6 +85,31 @@ REFF/video, and `Flight_05`.
 
 The case folder also contains `NUMBERING_MAP.txt`.
 
+### Video-only flight test
+
+Case 12 verifies the new grouping rule that a flight may be created from
+multiple related videos even when no REFF exists:
+
+```text
+VIDEO 1 + VIDEO 2 -> create Flight_01
+VIDEO 3 -> check existing flights first -> join Flight_01
+```
+
+The expected final folder contains all three videos, zero REFF files, and one
+missing-REFF warning per video.
+
+Video matching priority is:
+
+```text
+1. Existing flight folder
+   - same-device REFF match
+   - cross-device REFF match
+   - video-to-video match
+2. Standalone REFF
+3. Standalone video
+4. Remain standalone
+```
+
 ## Run all normal real-device cases
 
 ```bash
@@ -130,10 +155,12 @@ Case 01 validates:
 
 Case 02 validates:
 
-- filename collision handling
+- video filename collision handling
 - `_Number_1`
-- both files still exist
-- both files are copied into the visible `DUMP/`
+- both videos still exist
+- the two related videos create one video-only flight folder
+- the flight contains zero REFF files
+- both videos produce missing-REFF warnings
 
 The tests fail before setup if a generated corrected filename already exists on
 the Tablet, rather than deleting or overwriting a potentially real file.
