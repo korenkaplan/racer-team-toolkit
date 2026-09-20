@@ -6,6 +6,7 @@ from racer_team_toolkit.adb.device_detection import DeviceType
 from racer_team_toolkit.config import (
     LOCAL_DUMP_DIR,
     MAX_FLIGHT_TIME_DIFF,
+    MAX_VIDEO_TIME_DIFF,
     VIDEO_FILE_PREFIX,
 )
 from racer_team_toolkit.reff_extractor.file_detection import (
@@ -104,15 +105,18 @@ def group_videos_into_flights(
     standalone_reffs: list[FlightFile],
     starting_flight_number: int,
 ) -> VideoGroupingResult:
-    """Group standalone videos into existing or newly created flights."""
+    """Group videos into existing or newly created flights."""
 
     videos = get_video_files()
+    videos.sort(key=lambda file_info: file_info.mtime)
 
     warnings: list[GroupingWarning] = []
+    standalone_videos: list[FlightFile] = []
 
     flight_number = starting_flight_number
 
     for video in videos:
+        # Priority 1: existing flight folders.
         matched_flight = find_best_existing_flight_for_video(
             video,
             flights,
@@ -140,6 +144,7 @@ def group_videos_into_flights(
 
             continue
 
+        # Priority 2: standalone REFF files.
         matched_reff = find_best_standalone_reff_for_video(
             video,
             standalone_reffs,
@@ -157,7 +162,9 @@ def group_videos_into_flights(
 
             flights.append(new_flight)
 
-            standalone_reffs.remove(matched_reff)
+            standalone_reffs.remove(
+                matched_reff,
+            )
 
             if not flight_has_same_device_reff(
                 new_flight,
@@ -174,6 +181,54 @@ def group_videos_into_flights(
 
             continue
 
+        # Priority 3: standalone video files.
+        matched_video = find_best_standalone_video_for_video(
+            video,
+            standalone_videos,
+        )
+
+        if matched_video is not None:
+            new_flight = create_flight_from_standalone_videos(
+                matched_video,
+                video,
+                flight_number,
+            )
+
+            if new_flight is None:
+                continue
+
+            flights.append(
+                new_flight,
+            )
+
+            standalone_videos.remove(
+                matched_video,
+            )
+
+            warnings.append(
+                create_missing_reff_warning(
+                    matched_video,
+                    new_flight,
+                )
+            )
+
+            warnings.append(
+                create_missing_reff_warning(
+                    video,
+                    new_flight,
+                )
+            )
+
+            flight_number += 1
+
+            continue
+
+        # Keep unmatched videos available because a later video may match them.
+        standalone_videos.append(
+            video,
+        )
+
+    for video in standalone_videos:
         warnings.append(
             create_missing_reff_warning(
                 video,
@@ -185,8 +240,6 @@ def group_videos_into_flights(
         flights=flights,
         warnings=warnings,
     )
-
-
 def collect_reff_files() -> list[FlightFile]:
     """Collect standalone REFF files from the dump directory."""
 
@@ -511,34 +564,114 @@ def get_video_time_match(
     return None
 
 
+
+def get_video_to_video_match(
+    first_video_time: float,
+    second_video_time: float,
+) -> float | None:
+    """Return the time difference when two videos are related."""
+
+    time_diff = abs(
+        first_video_time - second_video_time
+    )
+
+    if time_diff <= MAX_VIDEO_TIME_DIFF:
+        return time_diff
+
+    return None
+
+
+def find_best_standalone_video_for_video(
+    video: FlightFile,
+    standalone_videos: list[FlightFile],
+) -> FlightFile | None:
+    """Return the closest related standalone video."""
+
+    matches: list[tuple[float, FlightFile]] = []
+
+    for candidate in standalone_videos:
+        time_diff = get_video_to_video_match(
+            video.mtime,
+            candidate.mtime,
+        )
+
+        if time_diff is None:
+            continue
+
+        matches.append(
+            (
+                time_diff,
+                candidate,
+            )
+        )
+
+    if not matches:
+        return None
+
+    return min(
+        matches,
+        key=lambda match: match[0],
+    )[1]
+
 def find_best_existing_flight_for_video(
     video: FlightFile,
     flights: list[Flight],
 ) -> Flight | None:
-    """Return the best flight, preferring a matching REFF from the same device."""
+    """Return the best existing flight for a video.
+
+    Priority:
+    1. Same-device REFF match.
+    2. Cross-device REFF match.
+    3. Video-to-video match.
+    """
 
     same_device_matches: list[tuple[int, float, Flight]] = []
     fallback_matches: list[tuple[int, float, Flight]] = []
+    video_matches: list[tuple[float, Flight]] = []
 
     for flight in flights:
-        same_device_reffs = [
-            reff
-            for reff in flight.reff_files
-            if reff.device_type == video.device_type
-        ]
+        if flight.reff_files:
+            same_device_reffs = [
+                reff
+                for reff in flight.reff_files
+                if reff.device_type == video.device_type
+            ]
 
-        if same_device_reffs:
-            same_device_end = max(reff.mtime for reff in same_device_reffs)
+            if same_device_reffs:
+                same_device_end = max(
+                    reff.mtime
+                    for reff in same_device_reffs
+                )
 
-            same_device_match = get_video_time_match(
-                video.mtime,
-                same_device_end,
+                same_device_match = get_video_time_match(
+                    video.mtime,
+                    same_device_end,
+                )
+
+                if same_device_match is not None:
+                    priority, time_diff = same_device_match
+
+                    same_device_matches.append(
+                        (
+                            priority,
+                            time_diff,
+                            flight,
+                        )
+                    )
+
+            flight_end = get_latest_flight_end_time(
+                flight,
             )
 
-            if same_device_match is not None:
-                priority, time_diff = same_device_match
+            fallback_match = get_video_time_match(
+                video.mtime,
+                flight_end,
+            )
 
-                same_device_matches.append(
+            if fallback_match is not None:
+                priority, time_diff = fallback_match
+
+                fallback_matches.append(
                     (
                         priority,
                         time_diff,
@@ -546,20 +679,18 @@ def find_best_existing_flight_for_video(
                     )
                 )
 
-        flight_end = get_latest_flight_end_time(flight)
+        for existing_video in flight.videos:
+            video_time_diff = get_video_to_video_match(
+                video.mtime,
+                existing_video.mtime,
+            )
 
-        fallback_match = get_video_time_match(
-            video.mtime,
-            flight_end,
-        )
+            if video_time_diff is None:
+                continue
 
-        if fallback_match is not None:
-            priority, time_diff = fallback_match
-
-            fallback_matches.append(
+            video_matches.append(
                 (
-                    priority,
-                    time_diff,
+                    video_time_diff,
                     flight,
                 )
             )
@@ -582,9 +713,13 @@ def find_best_existing_flight_for_video(
             ),
         )[2]
 
+    if video_matches:
+        return min(
+            video_matches,
+            key=lambda match: match[0],
+        )[1]
+
     return None
-
-
 def flight_has_same_device_reff(
     flight: Flight,
     video: FlightFile,
@@ -679,6 +814,44 @@ def create_flight_from_standalone_reff_and_video(
 
     return flight
 
+
+
+def create_flight_from_standalone_videos(
+    first_video: FlightFile,
+    second_video: FlightFile,
+    flight_number: int,
+) -> Flight | None:
+    """Create a flight from two related standalone videos."""
+
+    first_file_mtime = min(
+        first_video.mtime,
+        second_video.mtime,
+    )
+
+    flight_name, flight_dir = create_flight_directory(
+        flight_number,
+        first_file_mtime,
+    )
+
+    flight = Flight(
+        number=flight_number,
+        name=flight_name,
+        path=flight_dir,
+    )
+
+    if not attach_video_to_flight(
+        flight,
+        first_video,
+    ):
+        return None
+
+    if not attach_video_to_flight(
+        flight,
+        second_video,
+    ):
+        return None
+
+    return flight
 
 def create_missing_reff_warning(
     video: FlightFile,
