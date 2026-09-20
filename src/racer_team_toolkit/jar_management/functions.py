@@ -407,3 +407,76 @@ def upload_jar() -> bool:
 
         finally:
             ssh.close()
+
+
+def upload_selected_jar(
+    local_jar_path: Path,
+) -> bool:
+    """Upload a preselected Groundlord JAR and restart the Java processes."""
+
+    if not local_jar_path.is_file():
+        console.print(f"[red]✗[/red] JAR file does not exist: {local_jar_path}")
+        return False
+
+    with Status(
+        "Checking server connection...",
+        console=console,
+        spinner="dots",
+    ) as status:
+        if not is_ssh_server_reachable():
+            console.print(f"[red]✗[/red] Server is not reachable at {SSH_HOST}:{SSH_PORT}.")
+            return False
+
+        console.print("[green]✓[/green] Server reachable")
+
+        status.update("Connecting to server...")
+
+        ssh = connect_to_server()
+
+        if ssh is None:
+            return False
+
+        console.print("[green]✓[/green] Connected to server")
+
+        try:
+            status.update("Stopping running JAR processes...")
+
+            if not stop_screen_sessions(ssh):
+                return False
+
+            if not verify_screen_stopped(ssh):
+                return False
+
+            console.print("[green]✓[/green] Existing processes stopped")
+
+            console.print(f"\nSelected: [bold]{local_jar_path.name}[/bold]\n")
+
+            if not upload_jar_file(
+                ssh,
+                local_jar_path,
+            ):
+                return False
+
+            console.print("[green]✓[/green] JAR upload completed")
+
+            status.update("Starting Java processes...")
+
+            success, _ = run_java_script(ssh)
+
+            if not success:
+                return False
+
+            console.print("[green]✓[/green] Java startup command completed")
+
+            status.update("Verifying Racer Groundlord...")
+
+            if not verify_groundlord_started(ssh):
+                console.print("[red]✗[/red] Racer Groundlord did not start successfully.")
+                return False
+
+            console.print("[green]✓[/green] Racer Groundlord is running")
+
+            return True
+
+        finally:
+            ssh.close()

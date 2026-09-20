@@ -104,6 +104,7 @@ SUPPORTED_DEVICE_TYPES = ("RACER", "TABLET", "ISR")
 
 # Main menu settings.
 TOOL_MENU_CHOICES = [
+    "Full Release Update",
     "REFF & Video Extractor",
     "APK Installer",
     "JAR Management",

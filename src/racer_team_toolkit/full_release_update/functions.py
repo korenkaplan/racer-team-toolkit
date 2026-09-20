@@ -2,10 +2,14 @@
 
 from pathlib import Path
 
+from rich.table import Table
+from rich.text import Text
+
 from racer_team_toolkit.apk_installer.functions import (
     InstallationResult,
     build_installation_plan,
     contains_apk_files,
+    get_folders_in_downloads,
     run_installation,
 )
 from racer_team_toolkit.config import AndroidDevice
@@ -13,7 +17,14 @@ from racer_team_toolkit.full_release_update.dataclasses import ReleaseUpdatePlan
 from racer_team_toolkit.jar_management.config import JAR_FILENAME
 from racer_team_toolkit.jar_management.functions import (
     folder_contains_groundlord_jar,
+    select_jar_file,
     upload_selected_jar,
+)
+from racer_team_toolkit.ui.functions import (
+    console,
+    print_error,
+    select_menu,
+    select_menu_tuple,
 )
 
 
@@ -33,8 +44,7 @@ def get_release_folders() -> list[Path]:
 
     matching_locations = (
         [downloads_path]
-        if contains_apk_files(downloads_path)
-        or folder_contains_groundlord_jar(downloads_path)
+        if contains_apk_files(downloads_path) or folder_contains_groundlord_jar(downloads_path)
         else []
     )
 
@@ -134,10 +144,7 @@ def run_apk_updates(
     if not plan.install_apk:
         return []
 
-    return [
-        run_installation(item, console)
-        for item in plan.apk_plan
-    ]
+    return [run_installation(item, console) for item in plan.apk_plan]
 
 
 def run_jar_update(plan: ReleaseUpdatePlan) -> bool | None:
@@ -150,3 +157,219 @@ def run_jar_update(plan: ReleaseUpdatePlan) -> bool | None:
         return False
 
     return upload_selected_jar(plan.jar_file)
+
+
+def choose_apk_folder(
+    folders: list[Path],
+) -> Path:
+    """Let the user choose a folder containing APK files."""
+
+    choices = [folder.name for folder in folders]
+
+    folder_index, _ = select_menu_tuple(
+        "Select APK folder:",
+        choices,
+    )
+
+    return folders[folder_index]
+
+
+def resolve_missing_apks(
+    plan: ReleaseUpdatePlan,
+) -> bool:
+    """Resolve missing APKs before running the update."""
+
+    while plan.install_apk and has_missing_apk_files(plan):
+        choices = [
+            "Choose another APK folder",
+        ]
+
+        if has_matching_apk_files(plan):
+            choices.append("Continue with available APKs")
+
+        choices.extend(
+            [
+                "Skip all APK updates",
+                "Cancel",
+            ]
+        )
+
+        choice = select_menu(
+            "One or more matching APKs are missing:",
+            choices,
+        )
+
+        if choice == "Choose another APK folder":
+            apk_folders = get_folders_in_downloads()
+
+            if not apk_folders:
+                print_error("No folders containing APK files were found.")
+                continue
+
+            apk_folder = choose_apk_folder(
+                apk_folders,
+            )
+
+            change_apk_folder(
+                plan,
+                apk_folder,
+            )
+
+            print_release_update_plan(
+                plan,
+            )
+
+        elif choice == "Continue with available APKs":
+            return True
+
+        elif choice == "Skip all APK updates":
+            skip_apk_install(
+                plan,
+            )
+            return True
+
+        else:
+            return False
+
+    return True
+
+
+def resolve_missing_jar(
+    plan: ReleaseUpdatePlan,
+) -> bool:
+    """Resolve a missing JAR before running the update."""
+
+    if plan.jar_file is not None:
+        return True
+
+    while True:
+        choice = select_menu(
+            "Racer Groundlord JAR was not found:",
+            [
+                "Choose another JAR",
+                "Skip JAR upload",
+                "Cancel",
+            ],
+        )
+
+        if choice == "Choose another JAR":
+            jar_file = select_jar_file()
+
+            if jar_file is None:
+                continue
+
+            change_jar_file(
+                plan,
+                jar_file,
+            )
+
+            print_release_update_plan(
+                plan,
+            )
+
+            return True
+
+        if choice == "Skip JAR upload":
+            skip_jar_upload(
+                plan,
+            )
+            return True
+
+        return False
+
+
+def print_release_update_plan(
+    plan: ReleaseUpdatePlan,
+) -> None:
+    """Display the APK and JAR files selected for the release update."""
+
+    table = Table(
+        title="Full Release Update Plan",
+        show_lines=True,
+    )
+
+    table.add_column("Component")
+    table.add_column("Target")
+    table.add_column("File")
+    table.add_column("Action")
+
+    for item in plan.apk_plan:
+        if item.apk_path is None:
+            file_text = Text(
+                "NO MATCHING APK FOUND",
+                style="red",
+            )
+            action_text = Text(
+                "SKIP",
+                style="yellow",
+            )
+
+        elif not plan.install_apk:
+            file_text = item.apk_path.name
+            action_text = Text(
+                "SKIP",
+                style="yellow",
+            )
+
+        else:
+            file_text = item.apk_path.name
+            action_text = Text(
+                "INSTALL",
+                style="green",
+            )
+
+        table.add_row(
+            "APK",
+            item.device.name,
+            file_text,
+            action_text,
+        )
+
+    if plan.jar_file is None:
+        jar_file_text = Text(
+            "JAR NOT FOUND",
+            style="red",
+        )
+        jar_action_text = Text(
+            "SKIP",
+            style="yellow",
+        )
+
+    elif not plan.upload_jar:
+        jar_file_text = plan.jar_file.name
+        jar_action_text = Text(
+            "SKIP",
+            style="yellow",
+        )
+
+    else:
+        jar_file_text = plan.jar_file.name
+        jar_action_text = Text(
+            "UPLOAD",
+            style="green",
+        )
+
+    table.add_row(
+        "JAR",
+        "Racer Groundlord",
+        jar_file_text,
+        jar_action_text,
+    )
+
+    console.print()
+    console.print(table)
+
+
+def choose_release_folder(
+    folders: list[Path],
+) -> Path:
+    """Let the user choose a release folder."""
+
+    choices = [folder.name for folder in folders]
+
+    folder_index, _ = select_menu_tuple(
+        "Select release folder:",
+        choices,
+    )
+
+    return folders[folder_index]
