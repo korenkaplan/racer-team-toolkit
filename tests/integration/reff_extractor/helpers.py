@@ -164,21 +164,35 @@ def remove_remote_files(
         )
 
 
-def ensure_real_remote_directories() -> None:
-    """Ensure the real application directories exist on both fixed devices."""
+def ensure_real_remote_directories(
+    serials: tuple[str, ...] | None = None,
+) -> None:
+    """Ensure the real application directories exist on selected devices."""
 
-    for serial in (
+    target_serials = serials or (
         ISR_SERIAL,
         TABLET_SERIAL,
-    ):
-        run_adb(
-            serial,
-            "shell",
-            "mkdir",
-            "-p",
+    )
+
+    for serial in target_serials:
+        for remote_path in (
             REAL_REMOTE_REFF_PATH,
             REAL_REMOTE_VIDEO_PATH,
-        )
+        ):
+            result = run_adb(
+                serial,
+                "shell",
+                "mkdir",
+                "-p",
+                remote_path,
+                check=False,
+            )
+
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to prepare {remote_path} on {serial}: "
+                    f"{result.stderr.strip() or result.stdout.strip()}"
+                )
 
 
 def recreate_case_directory(
