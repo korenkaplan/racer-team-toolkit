@@ -192,7 +192,11 @@ def test_time_adjustment_renaming_creates_correct_flight_folder(
 ) -> None:
     """Corrected names and mtimes must drive the visible flight-folder name."""
 
-    ensure_real_remote_directories()
+    ensure_real_remote_directories(
+        (
+            TABLET_SERIAL,
+        )
+    )
 
     tablet = build_test_device(
         TABLET_SERIAL,
@@ -417,7 +421,11 @@ def test_time_adjustment_collision_uses_number_suffix(
 ) -> None:
     """Video collision rename creates _Number_1 without overwriting."""
 
-    ensure_real_remote_directories()
+    ensure_real_remote_directories(
+        (
+            TABLET_SERIAL,
+        )
+    )
 
     tablet = build_test_device(
         TABLET_SERIAL,
