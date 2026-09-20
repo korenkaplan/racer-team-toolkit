@@ -564,7 +564,6 @@ def get_video_time_match(
     return None
 
 
-
 def get_video_to_video_match(
     first_video_time: float,
     second_video_time: float,
@@ -720,6 +719,8 @@ def find_best_existing_flight_for_video(
         )[1]
 
     return None
+
+
 def flight_has_same_device_reff(
     flight: Flight,
     video: FlightFile,
@@ -813,7 +814,6 @@ def create_flight_from_standalone_reff_and_video(
         return None
 
     return flight
-
 
 
 def create_flight_from_standalone_videos(
