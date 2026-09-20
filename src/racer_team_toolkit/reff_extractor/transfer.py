@@ -58,7 +58,6 @@ def pull_reff_files(
     reff_files = list(reff_file_sizes)
 
     total_reff_files = len(reff_files)
-
     total_reff_bytes = sum(reff_file_sizes.values())
 
     if not reff_files:
@@ -83,27 +82,29 @@ def pull_reff_files(
         exist_ok=True,
     )
 
-    for file_number, remote_file in enumerate(
-        reff_files,
-        start=1,
-    ):
-        pull_remote_file(
-            device,
-            remote_file,
+    try:
+        for file_number, remote_file in enumerate(
+            reff_files,
+            start=1,
+        ):
+            pull_remote_file(
+                device,
+                remote_file,
+                records_dir,
+                progress,
+                task_id,
+                (f"REFF: {get_transfer_verb()} {file_number} of {total_reff_files} files"),
+            )
+
+        return move_record_files(
             records_dir,
-            progress,
-            task_id,
-            (f"REFF: {get_transfer_verb()} {file_number} of {total_reff_files} files"),
+            device,
         )
 
-    copied_count = move_record_files(
-        records_dir,
-        device,
-    )
-
-    remove_empty_directories(records_dir)
-
-    return copied_count
+    finally:
+        remove_temporary_directory(
+            records_dir,
+        )
 
 
 def pull_videos(
@@ -127,7 +128,6 @@ def pull_videos(
     video_files = list(video_file_sizes)
 
     total_video_files = len(video_files)
-
     total_video_bytes = sum(video_file_sizes.values())
 
     if not video_files:
@@ -152,27 +152,29 @@ def pull_videos(
         exist_ok=True,
     )
 
-    for file_number, remote_file in enumerate(
-        video_files,
-        start=1,
-    ):
-        pull_remote_file(
-            device,
-            remote_file,
+    try:
+        for file_number, remote_file in enumerate(
+            video_files,
+            start=1,
+        ):
+            pull_remote_file(
+                device,
+                remote_file,
+                videos_dir,
+                progress,
+                task_id,
+                (f"Videos: {get_transfer_verb()} {file_number} of {total_video_files} files"),
+            )
+
+        return move_video_files(
             videos_dir,
-            progress,
-            task_id,
-            (f"Videos: {get_transfer_verb()} {file_number} of {total_video_files} files"),
+            device,
         )
 
-    video_count = move_video_files(
-        videos_dir,
-        device,
-    )
-
-    remove_empty_directories(videos_dir)
-
-    return video_count
+    finally:
+        remove_temporary_directory(
+            videos_dir,
+        )
 
 
 def pull_remote_file(
@@ -453,14 +455,43 @@ def add_device_prefix(filename: str, file_prefix: str) -> str:
     return f"{file_prefix}_{filename}"
 
 
-def remove_empty_directories(directory: str) -> None:
-    """Remove empty directories below a directory, deepest first."""
+def remove_temporary_directory(
+    directory: str,
+) -> None:
+    """Remove staging directory if it contains no real files."""
 
-    for root, _, _ in os.walk(directory, topdown=False):
-        try:
-            os.rmdir(root)
-        except OSError:
-            pass
+    if not os.path.isdir(directory):
+        return
+
+    real_files: list[str] = []
+
+    for root, _, filenames in os.walk(directory):
+        for filename in filenames:
+            if filename.startswith("."):
+                continue
+
+            real_files.append(
+                os.path.join(
+                    root,
+                    filename,
+                )
+            )
+
+    if real_files:
+        console.print(
+            "[yellow]Temporary folder was not removed because real files still remain:[/yellow]"
+        )
+
+        for file_path in real_files:
+            console.print(f"[yellow]  {file_path}[/yellow]")
+
+        return
+
+    try:
+        shutil.rmtree(directory)
+
+    except OSError as error:
+        console.print(f"[yellow]Could not remove temporary folder {directory}: {error}[/yellow]")
 
 
 def get_transfer_verb() -> str:
