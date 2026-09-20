@@ -1426,3 +1426,121 @@ def test_case_11_paths_update_after_real_moves(
                 assert Path(file_info.path).is_file()
         finally:
             cleanup_remote(cleanup)
+
+
+def test_case_12_multiple_related_videos_without_reff_create_flight(
+    monkeypatch: pytest.MonkeyPatch,
+    connected_test_devices: set[str],
+) -> None:
+    """Three related videos with no REFF create one video-only flight."""
+
+    del connected_test_devices
+    ensure_real_remote_directories()
+
+    cleanup = {
+        TABLET_SERIAL: [],
+    }
+
+    with visible_case(
+        "Case_12_Video_Only_Flight",
+        title="Multiple related videos without REFF",
+        purpose=(
+            "Verify that related videos can create a flight even when no REFF "
+            "exists, and that a later related video joins the existing video-only "
+            "flight before standalone matching is considered."
+        ),
+        setup=(
+            "RACER video 1: 11:00:00\n"
+            "RACER video 2: 11:01:00\n"
+            "RACER video 3: 11:02:00\n"
+            "No REFF files."
+        ),
+        expected=(
+            "Exactly one Flight_01 folder.\n"
+            "The folder contains all three videos.\n"
+            "The folder contains zero REFF files.\n"
+            "Three missing-REFF warnings are created."
+        ),
+    ) as (case_dir, dump_dir):
+        patch_dump(
+            monkeypatch,
+            dump_dir,
+        )
+
+        video_1 = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C12_1.mp4",
+            ts(11, 0, 0),
+        )
+        video_2 = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C12_2.mp4",
+            ts(11, 1, 0),
+        )
+        video_3 = push_video(
+            TABLET_SERIAL,
+            "RTT_TEST_C12_3.mp4",
+            ts(11, 2, 0),
+        )
+
+        cleanup[TABLET_SERIAL].extend(
+            [
+                video_1,
+                video_2,
+                video_3,
+            ]
+        )
+
+        try:
+            process_role(
+                monkeypatch,
+                serial=TABLET_SERIAL,
+                device_type="RACER",
+                video_files=[
+                    video_1,
+                    video_2,
+                    video_3,
+                ],
+            )
+
+            flights, warnings = run_grouping(
+                starting_flight_number=1,
+            )
+
+            write_warnings(
+                case_dir,
+                warnings,
+            )
+
+            assert len(flights) == 1
+
+            flight = flights[0]
+
+            assert flight.reff_files == []
+            assert len(flight.videos) == 3
+            assert len(warnings) == 3
+            assert all(
+                warning.flight_name == flight.name
+                for warning in warnings
+            )
+
+            flight_dir = Path(
+                flight.path,
+            )
+
+            assert (
+                flight_dir
+                / "VIDEO_RACER_RTT_TEST_C12_1.mp4"
+            ).is_file()
+            assert (
+                flight_dir
+                / "VIDEO_RACER_RTT_TEST_C12_2.mp4"
+            ).is_file()
+            assert (
+                flight_dir
+                / "VIDEO_RACER_RTT_TEST_C12_3.mp4"
+            ).is_file()
+        finally:
+            cleanup_remote(
+                cleanup,
+            )
