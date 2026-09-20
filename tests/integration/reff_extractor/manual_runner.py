@@ -64,6 +64,11 @@ CASES = [
         "test_grouping_cases.py::test_case_11_paths_update_after_real_moves",
         "Case_11_Path_Update",
     ),
+    (
+        "Multiple related videos without REFF",
+        "test_grouping_cases.py::test_case_12_multiple_related_videos_without_reff_create_flight",
+        "Case_12_Video_Only_Flight",
+    ),
 ]
 
 TEST_ROOT = Path(__file__).parent
