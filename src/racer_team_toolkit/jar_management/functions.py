@@ -1,6 +1,5 @@
 """SSH and JAR management functions."""
 
-import socket
 from pathlib import Path
 
 import paramiko
@@ -17,80 +16,20 @@ from rich.status import Status
 from racer_team_toolkit.jar_management.config import (
     JAR_FILENAME,
     REMOTE_JAR_DIRECTORY,
+)
+from racer_team_toolkit.ssh.config import (
     SSH_HOST,
     SSH_PASSWORD,
     SSH_PORT,
-    SSH_USERNAME,
+)
+from racer_team_toolkit.ssh.functions import (
+    connect_to_server,
+    is_ssh_server_reachable,
+    run_remote_command,
 )
 from racer_team_toolkit.ui.functions import select_menu
 
 console = Console()
-
-
-def is_ssh_server_reachable(
-    host: str = SSH_HOST,
-    port: int = SSH_PORT,
-    timeout: float = 3.0,
-) -> bool:
-    """Return whether the SSH server can be reached on the configured port."""
-
-    try:
-        with socket.create_connection(
-            (host, port),
-            timeout=timeout,
-        ):
-            return True
-
-    except OSError:
-        return False
-
-
-def connect_to_server() -> paramiko.SSHClient | None:
-    """Connect to the JAR server over SSH."""
-
-    if not SSH_PASSWORD:
-        print("[!] SSH_PASSWORD is missing from the .env file.")
-        return None
-
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    try:
-        ssh.connect(
-            hostname=SSH_HOST,
-            port=SSH_PORT,
-            username=SSH_USERNAME,
-            password=SSH_PASSWORD,
-            timeout=5,
-            look_for_keys=False,
-            allow_agent=False,
-        )
-
-    except paramiko.AuthenticationException:
-        print("[!] SSH authentication failed.")
-        return None
-
-    except (paramiko.SSHException, socket.timeout, OSError) as error:
-        print(f"[!] SSH connection failed: {error}")
-        return None
-
-    return ssh
-
-
-def run_remote_command(
-    ssh: paramiko.SSHClient,
-    command: str,
-) -> tuple[int, str, str]:
-    """Run a command on the SSH server and return exit code, stdout, and stderr."""
-
-    _, stdout, stderr = ssh.exec_command(command)
-
-    exit_code = stdout.channel.recv_exit_status()
-
-    output = stdout.read().decode().strip()
-    error = stderr.read().decode().strip()
-
-    return exit_code, output, error
 
 
 def stop_screen_sessions(ssh: paramiko.SSHClient) -> bool:

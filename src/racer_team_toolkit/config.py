@@ -109,6 +109,7 @@ TOOL_MENU_CHOICES = [
     "APK Installer",
     "JAR Management",
     "Folders Reset",
+    "Extract IMU Recordings",
     "Exit",
 ]
 APK_INSTALLER_HEADER = "Select a folder to install APKs from:"

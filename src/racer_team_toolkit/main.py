@@ -3,6 +3,9 @@ from racer_team_toolkit.config import TOOL_MENU_CHOICES
 from racer_team_toolkit.full_release_update.main import (
     main as run_full_release_update_main,
 )
+from racer_team_toolkit.imu_recordings.main import (
+    main as run_imu_recordings_main,
+)
 from racer_team_toolkit.jar_management.main import main as run_jar_management_main
 from racer_team_toolkit.quick_reset.main import main as run_quick_reset_main
 from racer_team_toolkit.reff_extractor.main import (
@@ -40,7 +43,10 @@ def main() -> None:
         elif choice == TOOL_MENU_CHOICES[4]:
             run_quick_reset_main()
 
-        elif choice == TOOL_MENU_CHOICES[5] or choice is None:
+        elif choice == TOOL_MENU_CHOICES[5]:
+            run_imu_recordings_main()
+
+        elif choice == TOOL_MENU_CHOICES[6] or choice is None:
             break
 
 

@@ -161,3 +161,17 @@ def print_grouping_warnings(
 
     console.print()
     console.print(table)
+
+
+def select_multiple_menu(
+    message: str,
+    choices: list[str],
+) -> list[str]:
+    """Display a checkbox menu and return all selected options."""
+
+    selected = questionary.checkbox(
+        message,
+        choices=choices,
+    ).ask()
+
+    return selected or []
