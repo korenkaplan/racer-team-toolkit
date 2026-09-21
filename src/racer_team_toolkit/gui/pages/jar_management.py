@@ -33,6 +33,7 @@ class JarOperationWorker(QObject):
     """Run JAR operations away from the GUI thread."""
 
     status = Signal(str)
+    transfer_progress = Signal(int, int)
     finished = Signal(bool, str)
 
     def __init__(
@@ -106,6 +107,7 @@ class JarOperationWorker(QObject):
                 if not upload_jar_file(
                     ssh,
                     self.jar_path,
+                    progress_callback=self.transfer_progress.emit,
                 ):
                     self.finished.emit(
                         False,
@@ -383,6 +385,9 @@ class JarManagementPage(QWidget):
 
         self.thread.started.connect(self.worker.run)
         self.worker.status.connect(self._append_log)
+        self.worker.transfer_progress.connect(
+            self._update_transfer_progress
+        )
         self.worker.finished.connect(self._operation_finished)
         self.worker.finished.connect(self.thread.quit)
         self.thread.finished.connect(self._cleanup_thread)
@@ -393,6 +398,22 @@ class JarManagementPage(QWidget):
         """Append an operation message to the activity panel."""
 
         self.log.appendPlainText(message)
+
+    def _update_transfer_progress(
+        self,
+        transferred: int,
+        total: int,
+    ) -> None:
+        """Update live JAR upload progress."""
+
+        self.progress.setRange(0, max(total, 1))
+        self.progress.setValue(transferred)
+
+        if total > 0:
+            percent = int((transferred / total) * 100)
+            self.operation_status.setText(
+                f"Uploading {percent}%"
+            )
 
     def _operation_finished(
         self,
