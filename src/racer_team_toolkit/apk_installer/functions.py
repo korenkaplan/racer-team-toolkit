@@ -146,6 +146,7 @@ def run_installation(
 
     return InstallationResult(device, "success")
 
+
 def uninstall_application(
     device: AndroidDevice,
     console,
@@ -177,6 +178,7 @@ def uninstall_application(
         ],
         status_callback=status_callback,
     )
+
 
 def configure_install_verification(
     device: AndroidDevice,
@@ -230,6 +232,7 @@ def configure_install_verification(
             "✓ Install verification configured.",
         )
 
+
 def run_step(
     console,
     message: str,
@@ -270,6 +273,7 @@ def run_step(
     )
     return None
 
+
 def command_output(result) -> str:
     """Combine ADB stdout and stderr for reliable diagnostics."""
 
@@ -297,6 +301,7 @@ def command_failure_reason(result) -> str:
 
     output = command_output(result) or "ADB returned no diagnostic output."
     return f"ADB exit code {result.returncode}: {output}"
+
 
 
 def grant_permissions(
@@ -347,6 +352,7 @@ def grant_permissions(
     console.print("[green]✓ Permissions granted[/green]")
     _emit_status(status_callback, "✓ Permissions granted")
     return None
+
 
 def is_package_installed(device: AndroidDevice) -> bool:
     """Return whether the configured package is installed on the device."""
