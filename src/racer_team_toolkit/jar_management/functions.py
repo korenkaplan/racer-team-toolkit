@@ -1,7 +1,7 @@
 """SSH and JAR management functions."""
 
-from collections.abc import Callable
 from pathlib import Path
+from typing import Callable
 
 import paramiko
 from rich.console import Console
