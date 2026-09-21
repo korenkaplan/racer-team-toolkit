@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QStackedWidget,
@@ -51,6 +52,7 @@ class InstallationWorker(QObject):
     """Install APKs in a worker thread."""
 
     progress = Signal(int, int, str)
+    log = Signal(str)
     finished = Signal(object)
     failed = Signal(str)
 
@@ -72,7 +74,13 @@ class InstallationWorker(QObject):
                     total,
                     f"Installing on {item.device.name}...",
                 )
-                results.append(run_installation(item, quiet_console))
+                results.append(
+                    run_installation(
+                        item,
+                        quiet_console,
+                        status_callback=self.log.emit,
+                    )
+                )
                 self.progress.emit(
                     index,
                     total,
@@ -328,10 +336,19 @@ class ApkInstallerPage(QWidget):
         self.install_progress = QProgressBar()
         self.install_progress.setObjectName("installProgress")
         self.install_progress.setTextVisible(True)
+        self.install_progress.setFormat("Device %v of %m")
+
+        self.install_log = QPlainTextEdit()
+        self.install_log.setObjectName("installLog")
+        self.install_log.setReadOnly(True)
+        self.install_log.setPlaceholderText(
+            "Installation activity will appear here..."
+        )
 
         card_layout.addWidget(heading)
         card_layout.addWidget(self.install_status)
         card_layout.addWidget(self.install_progress)
+        card_layout.addWidget(self.install_log)
 
         layout.addWidget(card)
         layout.addStretch()
@@ -624,6 +641,8 @@ class ApkInstallerPage(QWidget):
         self.install_progress.setRange(0, total)
         self.install_progress.setValue(0)
         self.install_status.setText("Starting installation...")
+        self.install_log.clear()
+        self.install_log.appendPlainText("Starting APK installation...")
 
         self.install_thread = QThread()
         self.install_worker = InstallationWorker(self.plan)
@@ -631,6 +650,7 @@ class ApkInstallerPage(QWidget):
 
         self.install_thread.started.connect(self.install_worker.run)
         self.install_worker.progress.connect(self._update_install_progress)
+        self.install_worker.log.connect(self._append_install_log)
         self.install_worker.finished.connect(self._show_results)
         self.install_worker.failed.connect(self._show_install_error)
         self.install_worker.finished.connect(self.install_thread.quit)
@@ -649,6 +669,15 @@ class ApkInstallerPage(QWidget):
 
         self.install_progress.setRange(0, total)
         self.install_progress.setValue(completed)
+        self.install_status.setText(message)
+
+    def _append_install_log(
+        self,
+        message: str,
+    ) -> None:
+        """Append one live installation event to the activity log."""
+
+        self.install_log.appendPlainText(message)
         self.install_status.setText(message)
 
     def _show_results(self, results: list[InstallationResult]) -> None:
