@@ -1,10 +1,18 @@
-"""Dataclasses for the full release update flow."""
-
 from dataclasses import dataclass
 from pathlib import Path
 
 from racer_team_toolkit.apk_installer.functions import InstallationPlan
 from racer_team_toolkit.config import AndroidDevice
+
+
+@dataclass(frozen=True)
+class OnlineRelease:
+    """Release discovered from the Google Drive Releases Slack channel."""
+
+    release_tag: str
+    directory: str
+    folder_url: str
+    timestamp: float
 
 
 @dataclass
