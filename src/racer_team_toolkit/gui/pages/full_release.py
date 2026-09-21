@@ -101,6 +101,7 @@ class ReleaseExecutionWorker(QObject):
 
     status = Signal(str)
     progress = Signal(int, int)
+    jar_transfer = Signal(int, int)
     finished = Signal(object, object, bool)
     failed = Signal(str)
 
@@ -269,6 +270,7 @@ class ReleaseExecutionWorker(QObject):
             if not upload_jar_file(
                 ssh,
                 jar_path,
+                progress_callback=self.jar_transfer.emit,
             ):
                 self.status.emit(
                     "✗ JAR upload failed."
@@ -962,6 +964,9 @@ class FullReleasePage(QWidget):
         self.execution_worker.progress.connect(
             self._update_progress
         )
+        self.execution_worker.jar_transfer.connect(
+            self._update_jar_transfer
+        )
         self.execution_worker.finished.connect(
             self._show_results
         )
@@ -992,6 +997,21 @@ class FullReleasePage(QWidget):
             max(total, 1),
         )
         self.progress.setValue(completed)
+
+    def _update_jar_transfer(
+        self,
+        transferred: int,
+        total: int,
+    ) -> None:
+        """Display live JAR transfer progress in the activity status."""
+
+        if total <= 0:
+            return
+
+        percent = int((transferred / total) * 100)
+        self.activity_status.setText(
+            f"Uploading JAR {percent}%"
+        )
 
     def _show_results(
         self,
