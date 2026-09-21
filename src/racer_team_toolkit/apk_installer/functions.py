@@ -9,7 +9,6 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from racer_team_toolkit.adb.functions import run_adb_command
 from racer_team_toolkit.config import AndroidDevice
 
-
 StatusCallback = Callable[[str], None] | None
 
 
@@ -300,7 +299,6 @@ def command_failure_reason(result) -> str:
 
     output = command_output(result) or "ADB returned no diagnostic output."
     return f"ADB exit code {result.returncode}: {output}"
-
 
 
 def grant_permissions(

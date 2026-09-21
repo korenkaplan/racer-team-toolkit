@@ -229,9 +229,7 @@ class ApkInstallerPage(QWidget):
         heading = QLabel("2. Choose APK Source")
         heading.setObjectName("sectionTitle")
 
-        description = QLabel(
-            "Choose Downloads or a folder that directly contains the APK files."
-        )
+        description = QLabel("Choose Downloads or a folder that directly contains the APK files.")
         description.setObjectName("mutedText")
         description.setWordWrap(True)
 
@@ -350,9 +348,7 @@ class ApkInstallerPage(QWidget):
         self.install_log = QPlainTextEdit()
         self.install_log.setObjectName("installLog")
         self.install_log.setReadOnly(True)
-        self.install_log.setPlaceholderText(
-            "Installation activity will appear here..."
-        )
+        self.install_log.setPlaceholderText("Installation activity will appear here...")
 
         card_layout.addWidget(heading)
         card_layout.addWidget(self.install_status)
@@ -498,9 +494,7 @@ class ApkInstallerPage(QWidget):
             self.device_checkboxes.append((device, checkbox))
 
         count = len(devices)
-        self.device_status.setText(
-            f"{count} device" if count == 1 else f"{count} devices"
-        )
+        self.device_status.setText(f"{count} device" if count == 1 else f"{count} devices")
         self.devices_continue_button.setEnabled(True)
 
     def _show_device_error(self, message: str) -> None:
@@ -527,9 +521,7 @@ class ApkInstallerPage(QWidget):
         """Store selected targets and continue to APK source selection."""
 
         self.selected_devices = [
-            device
-            for device, checkbox in self.device_checkboxes
-            if checkbox.isChecked()
+            device for device, checkbox in self.device_checkboxes if checkbox.isChecked()
         ]
 
         if not self.selected_devices:
@@ -721,9 +713,7 @@ class ApkInstallerPage(QWidget):
                 )
                 result_label.setObjectName("warningText")
             else:
-                result_label = QLabel(
-                    f"✗ Failed{f' — {result.message}' if result.message else ''}"
-                )
+                result_label = QLabel(f"✗ Failed{f' — {result.message}' if result.message else ''}")
                 result_label.setObjectName("errorText")
 
             result_label.setWordWrap(True)

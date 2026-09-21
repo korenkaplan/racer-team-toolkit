@@ -61,9 +61,7 @@ class ImuLoadWorker(QObject):
 
             recordings = get_imu_recordings(ssh)
 
-            self.status.emit(
-                f"✓ Loaded {len(recordings)} recording(s)"
-            )
+            self.status.emit(f"✓ Loaded {len(recordings)} recording(s)")
             self.finished.emit(recordings)
 
         except Exception as error:
@@ -128,14 +126,10 @@ class ImuDownloadWorker(QObject):
                     self.recordings,
                     start=1,
                 ):
-                    remote_path = (
-                        f"{IMU_REMOTE_DIRECTORY}/{recording.filename}"
-                    )
+                    remote_path = f"{IMU_REMOTE_DIRECTORY}/{recording.filename}"
                     local_path = self.destination / recording.filename
 
-                    self.status.emit(
-                        f"Downloading {recording.filename}..."
-                    )
+                    self.status.emit(f"Downloading {recording.filename}...")
 
                     try:
                         sftp.get(
@@ -151,14 +145,10 @@ class ImuDownloadWorker(QObject):
                         )
 
                         copied_files.append(local_path)
-                        self.status.emit(
-                            f"✓ Copied {recording.filename}"
-                        )
+                        self.status.emit(f"✓ Copied {recording.filename}")
 
                     except OSError as error:
-                        message = (
-                            f"Failed to copy {recording.filename}: {error}"
-                        )
+                        message = f"Failed to copy {recording.filename}: {error}"
                         failures.append(message)
                         self.status.emit(f"✗ {message}")
 
@@ -187,9 +177,7 @@ class ImuRecordingsPage(QWidget):
         super().__init__()
 
         self.recordings: list[ImuRecording] = []
-        self.recording_checkboxes: list[
-            tuple[ImuRecording, QCheckBox]
-        ] = []
+        self.recording_checkboxes: list[tuple[ImuRecording, QCheckBox]] = []
 
         self.load_thread: QThread | None = None
         self.load_worker: ImuLoadWorker | None = None
@@ -220,9 +208,7 @@ class ImuRecordingsPage(QWidget):
         title = QLabel("Extract IMU Recordings")
         title.setObjectName("pageTitle")
 
-        subtitle = QLabel(
-            "Browse recordings on the server and copy selected CSV files locally."
-        )
+        subtitle = QLabel("Browse recordings on the server and copy selected CSV files locally.")
         subtitle.setObjectName("pageSubtitle")
 
         root.addWidget(title)
@@ -251,9 +237,7 @@ class ImuRecordingsPage(QWidget):
         header.addWidget(self.recording_count)
 
         self.recording_list_widget = QWidget()
-        self.recording_list_layout = QVBoxLayout(
-            self.recording_list_widget
-        )
+        self.recording_list_layout = QVBoxLayout(self.recording_list_widget)
         self.recording_list_layout.setContentsMargins(0, 0, 0, 0)
         self.recording_list_layout.setSpacing(8)
         self.recording_list_layout.addStretch()
@@ -271,15 +255,11 @@ class ImuRecordingsPage(QWidget):
 
         select_all_button = QPushButton("Select All")
         select_all_button.setObjectName("secondaryButton")
-        select_all_button.clicked.connect(
-            lambda: self._set_all_checked(True)
-        )
+        select_all_button.clicked.connect(lambda: self._set_all_checked(True))
 
         clear_button = QPushButton("Clear")
         clear_button.setObjectName("secondaryButton")
-        clear_button.clicked.connect(
-            lambda: self._set_all_checked(False)
-        )
+        clear_button.clicked.connect(lambda: self._set_all_checked(False))
 
         selection_buttons.addWidget(self.refresh_button)
         selection_buttons.addWidget(select_all_button)
@@ -299,9 +279,7 @@ class ImuRecordingsPage(QWidget):
         activity_title = QLabel("Extraction")
         activity_title.setObjectName("sectionTitle")
 
-        self.destination_label = QLabel(
-            f"Destination: {self.destination}"
-        )
+        self.destination_label = QLabel(f"Destination: {self.destination}")
         self.destination_label.setObjectName("pathLabel")
         self.destination_label.setWordWrap(True)
 
@@ -323,18 +301,12 @@ class ImuRecordingsPage(QWidget):
         self.log = QPlainTextEdit()
         self.log.setObjectName("installLog")
         self.log.setReadOnly(True)
-        self.log.setPlaceholderText(
-            "IMU server and transfer activity will appear here..."
-        )
+        self.log.setPlaceholderText("IMU server and transfer activity will appear here...")
 
-        self.download_button = QPushButton(
-            "Download Selected Recordings"
-        )
+        self.download_button = QPushButton("Download Selected Recordings")
         self.download_button.setObjectName("primaryButton")
         self.download_button.setEnabled(False)
-        self.download_button.clicked.connect(
-            self.download_selected
-        )
+        self.download_button.clicked.connect(self.download_selected)
 
         activity_layout.addWidget(activity_title)
         activity_layout.addWidget(self.destination_label)
@@ -391,9 +363,7 @@ class ImuRecordingsPage(QWidget):
             row_layout.setContentsMargins(14, 11, 14, 11)
 
             checkbox = QCheckBox()
-            checkbox.stateChanged.connect(
-                self._update_download_button
-            )
+            checkbox.stateChanged.connect(self._update_download_button)
 
             details = QVBoxLayout()
 
@@ -401,8 +371,7 @@ class ImuRecordingsPage(QWidget):
             filename.setObjectName("deviceName")
 
             metadata = QLabel(
-                f"{recording.modified_at:%d/%m/%Y %H:%M:%S}  •  "
-                f"{recording.size / 1_000_000:.1f} MB"
+                f"{recording.modified_at:%d/%m/%Y %H:%M:%S}  •  {recording.size / 1_000_000:.1f} MB"
             )
             metadata.setObjectName("deviceSerial")
 
@@ -418,13 +387,9 @@ class ImuRecordingsPage(QWidget):
                 row,
             )
 
-            self.recording_checkboxes.append(
-                (recording, checkbox)
-            )
+            self.recording_checkboxes.append((recording, checkbox))
 
-        self.recording_count.setText(
-            f"{len(recordings)} found"
-        )
+        self.recording_count.setText(f"{len(recordings)} found")
 
         if not recordings:
             empty = QLabel("No IMU recordings found.")
@@ -457,39 +422,25 @@ class ImuRecordingsPage(QWidget):
     def _update_download_button(self) -> None:
         """Enable download when at least one recording is selected."""
 
-        selected = any(
-            checkbox.isChecked()
-            for _, checkbox in self.recording_checkboxes
-        )
+        selected = any(checkbox.isChecked() for _, checkbox in self.recording_checkboxes)
 
-        busy = (
-            self.download_thread is not None
-            and self.download_thread.isRunning()
-        )
+        busy = self.download_thread is not None and self.download_thread.isRunning()
 
-        self.download_button.setEnabled(
-            selected and not busy
-        )
+        self.download_button.setEnabled(selected and not busy)
 
     def download_selected(self) -> None:
         """Download all checked recordings."""
 
         selected = [
-            recording
-            for recording, checkbox in self.recording_checkboxes
-            if checkbox.isChecked()
+            recording for recording, checkbox in self.recording_checkboxes if checkbox.isChecked()
         ]
 
         if not selected:
             return
 
         self.log.clear()
-        self._append_log(
-            f"Selected: {len(selected)} recording(s)"
-        )
-        self._append_log(
-            f"Destination: {self.destination}"
-        )
+        self._append_log(f"Selected: {len(selected)} recording(s)")
+        self._append_log(f"Destination: {self.destination}")
 
         self.file_progress.setRange(0, 1)
         self.file_progress.setValue(0)
@@ -508,37 +459,17 @@ class ImuRecordingsPage(QWidget):
             selected,
             self.destination,
         )
-        self.download_worker.moveToThread(
-            self.download_thread
-        )
+        self.download_worker.moveToThread(self.download_thread)
 
-        self.download_thread.started.connect(
-            self.download_worker.run
-        )
-        self.download_worker.status.connect(
-            self._append_log
-        )
-        self.download_worker.file_progress.connect(
-            self._update_file_progress
-        )
-        self.download_worker.overall_progress.connect(
-            self._update_overall_progress
-        )
-        self.download_worker.finished.connect(
-            self._download_finished
-        )
-        self.download_worker.failed.connect(
-            self._download_failed
-        )
-        self.download_worker.finished.connect(
-            self.download_thread.quit
-        )
-        self.download_worker.failed.connect(
-            self.download_thread.quit
-        )
-        self.download_thread.finished.connect(
-            self._cleanup_download_thread
-        )
+        self.download_thread.started.connect(self.download_worker.run)
+        self.download_worker.status.connect(self._append_log)
+        self.download_worker.file_progress.connect(self._update_file_progress)
+        self.download_worker.overall_progress.connect(self._update_overall_progress)
+        self.download_worker.finished.connect(self._download_finished)
+        self.download_worker.failed.connect(self._download_failed)
+        self.download_worker.finished.connect(self.download_thread.quit)
+        self.download_worker.failed.connect(self.download_thread.quit)
+        self.download_thread.finished.connect(self._cleanup_download_thread)
 
         self.download_thread.start()
 
@@ -550,9 +481,7 @@ class ImuRecordingsPage(QWidget):
     ) -> None:
         """Update the current file transfer progress."""
 
-        self.current_file_label.setText(
-            f"Downloading: {filename}"
-        )
+        self.current_file_label.setText(f"Downloading: {filename}")
         self.file_progress.setRange(0, max(total, 1))
         self.file_progress.setValue(transferred)
 
@@ -579,9 +508,7 @@ class ImuRecordingsPage(QWidget):
         self._append_log("IMU Extraction Results")
         self._append_log(f"Selected: {selected_count}")
         self._append_log(f"Copied:   {len(copied_files)}")
-        self._append_log(
-            f"Failed:   {selected_count - len(copied_files)}"
-        )
+        self._append_log(f"Failed:   {selected_count - len(copied_files)}")
         self._append_log(f"Destination: {self.destination}")
 
         if failures:
@@ -589,9 +516,7 @@ class ImuRecordingsPage(QWidget):
             for failure in failures:
                 self._append_log(f"✗ {failure}")
 
-        self.current_file_label.setText(
-            "Completed" if not failures else "Completed with errors"
-        )
+        self.current_file_label.setText("Completed" if not failures else "Completed with errors")
 
     def _download_failed(self, message: str) -> None:
         """Display an unexpected download error."""

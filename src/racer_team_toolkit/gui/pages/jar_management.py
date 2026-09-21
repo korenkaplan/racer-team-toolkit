@@ -51,9 +51,7 @@ class JarOperationWorker(QObject):
         ssh = None
 
         try:
-            self.status.emit(
-                f"Checking server connection at {SSH_HOST}:{SSH_PORT}..."
-            )
+            self.status.emit(f"Checking server connection at {SSH_HOST}:{SSH_PORT}...")
 
             if not is_ssh_server_reachable():
                 self.finished.emit(
@@ -187,9 +185,7 @@ class JarManagementPage(QWidget):
         title = QLabel("JAR Management")
         title.setObjectName("pageTitle")
 
-        subtitle = QLabel(
-            "Upload Racer Groundlord or restart the currently deployed JAR."
-        )
+        subtitle = QLabel("Upload Racer Groundlord or restart the currently deployed JAR.")
         subtitle.setObjectName("pageSubtitle")
 
         root.addWidget(title)
@@ -235,9 +231,7 @@ class JarManagementPage(QWidget):
         self.log = QPlainTextEdit()
         self.log.setObjectName("installLog")
         self.log.setReadOnly(True)
-        self.log.setPlaceholderText(
-            "Server and JAR activity will appear here..."
-        )
+        self.log.setPlaceholderText("Server and JAR activity will appear here...")
 
         activity_layout.addLayout(activity_header)
         activity_layout.addWidget(self.progress)
@@ -267,9 +261,7 @@ class JarManagementPage(QWidget):
 
         self.restart_button = QPushButton("Restart Racer Groundlord")
         self.restart_button.setObjectName("primaryButton")
-        self.restart_button.clicked.connect(
-            lambda: self._start_operation("restart")
-        )
+        self.restart_button.clicked.connect(lambda: self._start_operation("restart"))
 
         layout.addWidget(title)
         layout.addWidget(description)
@@ -309,9 +301,7 @@ class JarManagementPage(QWidget):
         self.upload_button = QPushButton("Upload & Restart")
         self.upload_button.setObjectName("primaryButton")
         self.upload_button.setEnabled(False)
-        self.upload_button.clicked.connect(
-            lambda: self._start_operation("upload")
-        )
+        self.upload_button.clicked.connect(lambda: self._start_operation("upload"))
 
         layout.addWidget(title)
         layout.addWidget(description)
@@ -338,9 +328,7 @@ class JarManagementPage(QWidget):
         jar_path = Path(selected)
 
         if jar_path.name != "racer-groundlord.jar":
-            self.jar_path_label.setText(
-                "Selected file must be named racer-groundlord.jar"
-            )
+            self.jar_path_label.setText("Selected file must be named racer-groundlord.jar")
             self.jar_path_label.setObjectName("errorText")
             self.jar_path_label.style().unpolish(self.jar_path_label)
             self.jar_path_label.style().polish(self.jar_path_label)
@@ -385,9 +373,7 @@ class JarManagementPage(QWidget):
 
         self.thread.started.connect(self.worker.run)
         self.worker.status.connect(self._append_log)
-        self.worker.transfer_progress.connect(
-            self._update_transfer_progress
-        )
+        self.worker.transfer_progress.connect(self._update_transfer_progress)
         self.worker.finished.connect(self._operation_finished)
         self.worker.finished.connect(self.thread.quit)
         self.thread.finished.connect(self._cleanup_thread)
@@ -411,9 +397,7 @@ class JarManagementPage(QWidget):
 
         if total > 0:
             percent = int((transferred / total) * 100)
-            self.operation_status.setText(
-                f"Uploading {percent}%"
-            )
+            self.operation_status.setText(f"Uploading {percent}%")
 
     def _operation_finished(
         self,
@@ -423,13 +407,9 @@ class JarManagementPage(QWidget):
         """Display the final JAR operation result."""
 
         self._append_log("")
-        self._append_log(
-            f"✓ {message}" if success else f"✗ {message}"
-        )
+        self._append_log(f"✓ {message}" if success else f"✗ {message}")
 
-        self.operation_status.setText(
-            "Completed" if success else "Failed"
-        )
+        self.operation_status.setText("Completed" if success else "Failed")
 
         self.progress.setRange(0, 1)
         self.progress.setValue(1 if success else 0)
@@ -441,6 +421,4 @@ class JarManagementPage(QWidget):
         self.thread = None
 
         self.restart_button.setEnabled(True)
-        self.upload_button.setEnabled(
-            self.selected_jar is not None
-        )
+        self.upload_button.setEnabled(self.selected_jar is not None)

@@ -108,9 +108,7 @@ class ResetApplyWorker(QObject):
                 label,
                 remote_path,
             ) in enumerate(steps, start=1):
-                self.status.emit(
-                    f"Resetting {label} on {device.name}..."
-                )
+                self.status.emit(f"Resetting {label} on {device.name}...")
 
                 success = reset_remote_folder(
                     device,
@@ -118,14 +116,10 @@ class ResetApplyWorker(QObject):
                 )
 
                 if success:
-                    self.status.emit(
-                        f"✓ {device.name}: {label} folder reset"
-                    )
+                    self.status.emit(f"✓ {device.name}: {label} folder reset")
                 else:
                     all_successful = False
-                    self.status.emit(
-                        f"✗ {device.name}: failed to reset {label}"
-                    )
+                    self.status.emit(f"✗ {device.name}: failed to reset {label}")
 
                 self.progress.emit(
                     index,
@@ -180,9 +174,7 @@ class FoldersResetPage(QWidget):
         title = QLabel("Folders Reset")
         title.setObjectName("pageTitle")
 
-        subtitle = QLabel(
-            "Clear REFF and Screen Videos folders on connected Android devices."
-        )
+        subtitle = QLabel("Clear REFF and Screen Videos folders on connected Android devices.")
         subtitle.setObjectName("pageSubtitle")
 
         root.addWidget(title)
@@ -229,21 +221,13 @@ class FoldersResetPage(QWidget):
         self.device_list_layout = QVBoxLayout()
         self.device_list_layout.setSpacing(8)
 
-        quick_button = QPushButton(
-            "Quick Reset: Select Everything"
-        )
+        quick_button = QPushButton("Quick Reset: Select Everything")
         quick_button.setObjectName("secondaryButton")
-        quick_button.clicked.connect(
-            self._select_everything
-        )
+        quick_button.clicked.connect(self._select_everything)
 
-        self.refresh_button = QPushButton(
-            "Refresh Devices"
-        )
+        self.refresh_button = QPushButton("Refresh Devices")
         self.refresh_button.setObjectName("secondaryButton")
-        self.refresh_button.clicked.connect(
-            self.refresh_devices
-        )
+        self.refresh_button.clicked.connect(self.refresh_devices)
 
         device_buttons = QHBoxLayout()
         device_buttons.addWidget(quick_button)
@@ -265,18 +249,14 @@ class FoldersResetPage(QWidget):
         review_title = QLabel("Reset Plan")
         review_title.setObjectName("sectionTitle")
 
-        self.plan_summary = QLabel(
-            "Select folders, then review the reset plan."
-        )
+        self.plan_summary = QLabel("Select folders, then review the reset plan.")
         self.plan_summary.setObjectName("mutedText")
         self.plan_summary.setWordWrap(True)
 
         self.log = QPlainTextEdit()
         self.log.setObjectName("installLog")
         self.log.setReadOnly(True)
-        self.log.setPlaceholderText(
-            "Reset plan and activity will appear here..."
-        )
+        self.log.setPlaceholderText("Reset plan and activity will appear here...")
 
         self.progress = QProgressBar()
         self.progress.setObjectName("operationProgress")
@@ -284,23 +264,15 @@ class FoldersResetPage(QWidget):
         self.progress.setValue(0)
         self.progress.setFormat("Step %v of %m")
 
-        self.review_button = QPushButton(
-            "Review Reset Plan"
-        )
+        self.review_button = QPushButton("Review Reset Plan")
         self.review_button.setObjectName("secondaryButton")
         self.review_button.setEnabled(False)
-        self.review_button.clicked.connect(
-            self.review_plan
-        )
+        self.review_button.clicked.connect(self.review_plan)
 
-        self.reset_button = QPushButton(
-            "Reset Selected Folders"
-        )
+        self.reset_button = QPushButton("Reset Selected Folders")
         self.reset_button.setObjectName("dangerButton")
         self.reset_button.setEnabled(False)
-        self.reset_button.clicked.connect(
-            self.apply_reset
-        )
+        self.reset_button.clicked.connect(self.apply_reset)
 
         review_layout.addWidget(review_title)
         review_layout.addWidget(self.plan_summary)
@@ -324,9 +296,7 @@ class FoldersResetPage(QWidget):
             devices = get_connected_android_devices()
         except Exception as error:
             self.device_status.setText("Failed")
-            self._append_log(
-                f"✗ Device detection failed: {error}"
-            )
+            self._append_log(f"✗ Device detection failed: {error}")
             self.refresh_button.setEnabled(True)
             return
 
@@ -366,9 +336,7 @@ class FoldersResetPage(QWidget):
                 reff,
                 videos,
             ):
-                checkbox.stateChanged.connect(
-                    self._selection_changed
-                )
+                checkbox.stateChanged.connect(self._selection_changed)
 
             layout.addWidget(selected)
             layout.addLayout(details, stretch=1)
@@ -384,14 +352,10 @@ class FoldersResetPage(QWidget):
             )
 
         count = len(devices)
-        self.device_status.setText(
-            f"{count} device" if count == 1 else f"{count} devices"
-        )
+        self.device_status.setText(f"{count} device" if count == 1 else f"{count} devices")
 
         if not devices:
-            empty = QLabel(
-                "No supported Android devices connected."
-            )
+            empty = QLabel("No supported Android devices connected.")
             empty.setObjectName("emptyState")
             self.device_list_layout.addWidget(empty)
 
@@ -416,17 +380,15 @@ class FoldersResetPage(QWidget):
         self.reset_plan = {}
 
         has_selection = any(
-            selected.isChecked()
-            and (
-                reff.isChecked()
-                or videos.isChecked()
-            )
+            selected.isChecked() and (reff.isChecked() or videos.isChecked())
             for selected, reff, videos in self.device_rows.values()
         )
 
         self.review_button.setEnabled(has_selection)
 
-    def _build_plan(self) -> tuple[
+    def _build_plan(
+        self,
+    ) -> tuple[
         list[AndroidDevice],
         dict[str, set[str]],
     ]:
@@ -436,9 +398,7 @@ class FoldersResetPage(QWidget):
         reset_plan: dict[str, set[str]] = {}
 
         for device in self.devices:
-            row = self.device_rows.get(
-                device.serial
-            )
+            row = self.device_rows.get(device.serial)
 
             if row is None:
                 continue
@@ -485,34 +445,20 @@ class FoldersResetPage(QWidget):
             selected_devices,
             reset_plan,
         )
-        self.scan_worker.moveToThread(
-            self.scan_thread
-        )
+        self.scan_worker.moveToThread(self.scan_thread)
 
-        self.scan_thread.started.connect(
-            self.scan_worker.run
-        )
-        self.scan_worker.status.connect(
-            self._append_log
-        )
+        self.scan_thread.started.connect(self.scan_worker.run)
+        self.scan_worker.status.connect(self._append_log)
         self.scan_worker.finished.connect(
             lambda counts: self._show_plan(
                 selected_devices,
                 counts,
             )
         )
-        self.scan_worker.failed.connect(
-            self._scan_failed
-        )
-        self.scan_worker.finished.connect(
-            self.scan_thread.quit
-        )
-        self.scan_worker.failed.connect(
-            self.scan_thread.quit
-        )
-        self.scan_thread.finished.connect(
-            self._cleanup_scan_thread
-        )
+        self.scan_worker.failed.connect(self._scan_failed)
+        self.scan_worker.finished.connect(self.scan_thread.quit)
+        self.scan_worker.failed.connect(self.scan_thread.quit)
+        self.scan_thread.finished.connect(self._cleanup_scan_thread)
 
         self.scan_thread.start()
 
@@ -546,39 +492,27 @@ class FoldersResetPage(QWidget):
             if "reff" in folders:
                 reff_count = device_counts["reff"]
                 total_files += reff_count
-                self._append_log(
-                    f"  REFF: {reff_count} file(s)"
-                )
+                self._append_log(f"  REFF: {reff_count} file(s)")
 
             if "videos" in folders:
                 video_count = device_counts["videos"]
                 total_files += video_count
-                self._append_log(
-                    f"  Screen Videos: {video_count} file(s)"
-                )
+                self._append_log(f"  Screen Videos: {video_count} file(s)")
 
         self._append_log("")
-        self._append_log(
-            f"Total files to delete: {total_files}"
-        )
+        self._append_log(f"Total files to delete: {total_files}")
 
         if total_files == 0:
-            self.plan_summary.setText(
-                "Selected folders are already empty."
-            )
+            self.plan_summary.setText("Selected folders are already empty.")
             self.reset_button.setEnabled(False)
         else:
-            self.plan_summary.setText(
-                f"{total_files} file(s) will be permanently deleted."
-            )
+            self.plan_summary.setText(f"{total_files} file(s) will be permanently deleted.")
             self.reset_button.setEnabled(True)
 
     def _scan_failed(self, message: str) -> None:
         """Display scan failure."""
 
-        self._append_log(
-            f"✗ Could not build reset plan: {message}"
-        )
+        self._append_log(f"✗ Could not build reset plan: {message}")
 
     def _cleanup_scan_thread(self) -> None:
         """Release scan worker references."""
@@ -592,13 +526,8 @@ class FoldersResetPage(QWidget):
 
         selected_devices, reset_plan = self._build_plan()
 
-        if (
-            not selected_devices
-            or reset_plan != self.reset_plan
-        ):
-            self._append_log(
-                "Selection changed. Review the reset plan again."
-            )
+        if not selected_devices or reset_plan != self.reset_plan:
+            self._append_log("Selection changed. Review the reset plan again.")
             self.reset_button.setEnabled(False)
             return
 
@@ -607,8 +536,7 @@ class FoldersResetPage(QWidget):
             "Confirm Folder Reset",
             "This permanently deletes the selected files from "
             "the connected devices.\n\nContinue with reset?",
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
 
@@ -620,10 +548,7 @@ class FoldersResetPage(QWidget):
         self.review_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
 
-        steps = sum(
-            len(folders)
-            for folders in reset_plan.values()
-        )
+        steps = sum(len(folders) for folders in reset_plan.values())
 
         self.progress.setRange(
             0,
@@ -639,34 +564,16 @@ class FoldersResetPage(QWidget):
             selected_devices,
             reset_plan,
         )
-        self.apply_worker.moveToThread(
-            self.apply_thread
-        )
+        self.apply_worker.moveToThread(self.apply_thread)
 
-        self.apply_thread.started.connect(
-            self.apply_worker.run
-        )
-        self.apply_worker.status.connect(
-            self._append_log
-        )
-        self.apply_worker.progress.connect(
-            self._update_progress
-        )
-        self.apply_worker.finished.connect(
-            self._reset_finished
-        )
-        self.apply_worker.failed.connect(
-            self._reset_failed
-        )
-        self.apply_worker.finished.connect(
-            self.apply_thread.quit
-        )
-        self.apply_worker.failed.connect(
-            self.apply_thread.quit
-        )
-        self.apply_thread.finished.connect(
-            self._cleanup_apply_thread
-        )
+        self.apply_thread.started.connect(self.apply_worker.run)
+        self.apply_worker.status.connect(self._append_log)
+        self.apply_worker.progress.connect(self._update_progress)
+        self.apply_worker.finished.connect(self._reset_finished)
+        self.apply_worker.failed.connect(self._reset_failed)
+        self.apply_worker.finished.connect(self.apply_thread.quit)
+        self.apply_worker.failed.connect(self.apply_thread.quit)
+        self.apply_thread.finished.connect(self._cleanup_apply_thread)
 
         self.apply_thread.start()
 
@@ -689,19 +596,11 @@ class FoldersResetPage(QWidget):
         self._append_log("")
 
         if success:
-            self._append_log(
-                "✓ Reset completed successfully."
-            )
-            self.plan_summary.setText(
-                "Reset completed successfully."
-            )
+            self._append_log("✓ Reset completed successfully.")
+            self.plan_summary.setText("Reset completed successfully.")
         else:
-            self._append_log(
-                "✗ Reset completed with errors."
-            )
-            self.plan_summary.setText(
-                "Reset completed with errors."
-            )
+            self._append_log("✗ Reset completed with errors.")
+            self.plan_summary.setText("Reset completed with errors.")
 
         self.reset_plan = {}
         self.counts = {}
@@ -709,12 +608,8 @@ class FoldersResetPage(QWidget):
     def _reset_failed(self, message: str) -> None:
         """Display an unexpected reset failure."""
 
-        self._append_log(
-            f"✗ Reset failed: {message}"
-        )
-        self.plan_summary.setText(
-            "Reset failed."
-        )
+        self._append_log(f"✗ Reset failed: {message}")
+        self.plan_summary.setText("Reset failed.")
 
     def _cleanup_apply_thread(self) -> None:
         """Release reset worker references."""

@@ -67,25 +67,15 @@ class ReleaseLoadWorker(QObject):
             devices = get_connected_android_devices()
 
             if devices:
-                self.status.emit(
-                    f"✓ Connected devices: {len(devices)}"
-                )
+                self.status.emit(f"✓ Connected devices: {len(devices)}")
                 for device in devices:
-                    self.status.emit(
-                        f"  {device.name} (Serial: {device.serial})"
-                    )
+                    self.status.emit(f"  {device.name} (Serial: {device.serial})")
             else:
-                self.status.emit(
-                    "No supported Android devices are connected."
-                )
+                self.status.emit("No supported Android devices are connected.")
 
-            self.status.emit(
-                "Scanning Downloads for release folders..."
-            )
+            self.status.emit("Scanning Downloads for release folders...")
             folders = get_release_folders()
-            self.status.emit(
-                f"✓ Found {len(folders)} release location(s)"
-            )
+            self.status.emit(f"✓ Found {len(folders)} release location(s)")
 
             self.finished.emit(
                 devices,
@@ -124,28 +114,18 @@ class ReleaseExecutionWorker(QObject):
         jar_blocked = False
 
         try:
-            enabled_apks = (
-                len(self.plan.apk_plan)
-                if self.plan.install_apk
-                else 0
-            )
-            total_steps = enabled_apks + (
-                1 if self.plan.upload_jar else 0
-            )
+            enabled_apks = len(self.plan.apk_plan) if self.plan.install_apk else 0
+            total_steps = enabled_apks + (1 if self.plan.upload_jar else 0)
             completed = 0
 
             self.status.emit("APK Updates")
 
             if not self.plan.install_apk:
-                self.status.emit(
-                    "APK updates: SKIPPED"
-                )
+                self.status.emit("APK updates: SKIPPED")
             else:
                 for item in self.plan.apk_plan:
                     self.status.emit("")
-                    self.status.emit(
-                        f"▶ APK target: {item.device.name}"
-                    )
+                    self.status.emit(f"▶ APK target: {item.device.name}")
 
                     result = run_installation(
                         item,
@@ -160,22 +140,15 @@ class ReleaseExecutionWorker(QObject):
                         max(total_steps, 1),
                     )
 
-            apk_failed = any(
-                result.status == "failed"
-                for result in apk_results
-            )
+            apk_failed = any(result.status == "failed" for result in apk_results)
 
-            jar_blocked = (
-                apk_failed and self.plan.upload_jar
-            )
+            jar_blocked = apk_failed and self.plan.upload_jar
 
             self.status.emit("")
             self.status.emit("JAR Update")
 
             if jar_blocked:
-                self.status.emit(
-                    "✗ One or more APK installations failed."
-                )
+                self.status.emit("✗ One or more APK installations failed.")
                 self.status.emit(
                     "JAR upload was not started because "
                     "the APK update did not complete successfully."
@@ -185,15 +158,11 @@ class ReleaseExecutionWorker(QObject):
                 self.status.emit("JAR update: SKIPPED")
 
             elif self.plan.jar_file is None:
-                self.status.emit(
-                    "✗ JAR file was not selected."
-                )
+                self.status.emit("✗ JAR file was not selected.")
                 jar_result = False
 
             else:
-                jar_result = self._run_jar_update(
-                    self.plan.jar_file
-                )
+                jar_result = self._run_jar_update(self.plan.jar_file)
 
                 completed += 1
                 self.progress.emit(
@@ -219,14 +188,10 @@ class ReleaseExecutionWorker(QObject):
         ssh = None
 
         try:
-            self.status.emit(
-                f"Checking server connection at {SSH_HOST}:{SSH_PORT}..."
-            )
+            self.status.emit(f"Checking server connection at {SSH_HOST}:{SSH_PORT}...")
 
             if not is_ssh_server_reachable():
-                self.status.emit(
-                    "✗ SSH server is not reachable."
-                )
+                self.status.emit("✗ SSH server is not reachable.")
                 return False
 
             self.status.emit("✓ Server reachable")
@@ -235,46 +200,30 @@ class ReleaseExecutionWorker(QObject):
             ssh = connect_to_server()
 
             if ssh is None:
-                self.status.emit(
-                    "✗ Could not connect to server."
-                )
+                self.status.emit("✗ Could not connect to server.")
                 return False
 
             self.status.emit("✓ Connected to server")
-            self.status.emit(
-                "Stopping running JAR processes..."
-            )
+            self.status.emit("Stopping running JAR processes...")
 
             if not stop_screen_sessions(ssh):
-                self.status.emit(
-                    "✗ Failed to stop screen sessions."
-                )
+                self.status.emit("✗ Failed to stop screen sessions.")
                 return False
 
             if not verify_screen_stopped(ssh):
-                self.status.emit(
-                    "✗ Could not verify screen sessions stopped."
-                )
+                self.status.emit("✗ Could not verify screen sessions stopped.")
                 return False
 
-            self.status.emit(
-                "✓ Existing processes stopped"
-            )
-            self.status.emit(
-                f"Selected: {jar_path}"
-            )
-            self.status.emit(
-                "Uploading racer-groundlord.jar..."
-            )
+            self.status.emit("✓ Existing processes stopped")
+            self.status.emit(f"Selected: {jar_path}")
+            self.status.emit("Uploading racer-groundlord.jar...")
 
             if not upload_jar_file(
                 ssh,
                 jar_path,
                 progress_callback=self.jar_transfer.emit,
             ):
-                self.status.emit(
-                    "✗ JAR upload failed."
-                )
+                self.status.emit("✗ JAR upload failed.")
                 return False
 
             self.status.emit("✓ JAR upload completed")
@@ -286,27 +235,17 @@ class ReleaseExecutionWorker(QObject):
                 self.status.emit(output)
 
             if not success:
-                self.status.emit(
-                    "✗ Java startup command failed."
-                )
+                self.status.emit("✗ Java startup command failed.")
                 return False
 
-            self.status.emit(
-                "✓ Java startup command completed"
-            )
-            self.status.emit(
-                "Verifying Racer Groundlord..."
-            )
+            self.status.emit("✓ Java startup command completed")
+            self.status.emit("Verifying Racer Groundlord...")
 
             if not verify_groundlord_started(ssh):
-                self.status.emit(
-                    "✗ Racer Groundlord did not start successfully."
-                )
+                self.status.emit("✗ Racer Groundlord did not start successfully.")
                 return False
 
-            self.status.emit(
-                "✓ Racer Groundlord is running"
-            )
+            self.status.emit("✓ Racer Groundlord is running")
             return True
 
         finally:
@@ -384,34 +323,22 @@ class FullReleasePage(QWidget):
 
         self.release_combo = QComboBox()
         self.release_combo.setObjectName("folderCombo")
-        self.release_combo.currentIndexChanged.connect(
-            self._source_changed
-        )
+        self.release_combo.currentIndexChanged.connect(self._source_changed)
 
         source_buttons = QHBoxLayout()
 
-        browse_release = QPushButton(
-            "Browse Release Folder..."
-        )
+        browse_release = QPushButton("Browse Release Folder...")
         browse_release.setObjectName("secondaryButton")
-        browse_release.clicked.connect(
-            self._browse_release_folder
-        )
+        browse_release.clicked.connect(self._browse_release_folder)
 
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.setObjectName("secondaryButton")
-        self.refresh_button.clicked.connect(
-            self.refresh_sources
-        )
+        self.refresh_button.clicked.connect(self.refresh_sources)
 
-        self.build_plan_button = QPushButton(
-            "Build Release Plan"
-        )
+        self.build_plan_button = QPushButton("Build Release Plan")
         self.build_plan_button.setObjectName("primaryButton")
         self.build_plan_button.setEnabled(False)
-        self.build_plan_button.clicked.connect(
-            self.build_plan
-        )
+        self.build_plan_button.clicked.connect(self.build_plan)
 
         source_buttons.addWidget(browse_release)
         source_buttons.addWidget(self.refresh_button)
@@ -447,31 +374,17 @@ class FullReleasePage(QWidget):
                 "Action",
             ]
         )
-        self.plan_table.horizontalHeader().setStretchLastSection(
-            True
-        )
-        self.plan_table.setEditTriggers(
-            QTableWidget.EditTrigger.NoEditTriggers
-        )
-        self.plan_table.setSelectionMode(
-            QTableWidget.SelectionMode.NoSelection
-        )
+        self.plan_table.horizontalHeader().setStretchLastSection(True)
+        self.plan_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.plan_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
 
         options = QHBoxLayout()
 
-        self.skip_apks_checkbox = QCheckBox(
-            "Skip all APK updates"
-        )
-        self.skip_apks_checkbox.stateChanged.connect(
-            self._plan_option_changed
-        )
+        self.skip_apks_checkbox = QCheckBox("Skip all APK updates")
+        self.skip_apks_checkbox.stateChanged.connect(self._plan_option_changed)
 
-        self.skip_jar_checkbox = QCheckBox(
-            "Skip JAR upload"
-        )
-        self.skip_jar_checkbox.stateChanged.connect(
-            self._plan_option_changed
-        )
+        self.skip_jar_checkbox = QCheckBox("Skip JAR upload")
+        self.skip_jar_checkbox.stateChanged.connect(self._plan_option_changed)
 
         options.addWidget(self.skip_apks_checkbox)
         options.addWidget(self.skip_jar_checkbox)
@@ -479,25 +392,15 @@ class FullReleasePage(QWidget):
 
         replacement_buttons = QHBoxLayout()
 
-        choose_apk_folder = QPushButton(
-            "Choose Different APK Folder..."
-        )
+        choose_apk_folder = QPushButton("Choose Different APK Folder...")
         choose_apk_folder.setObjectName("secondaryButton")
-        choose_apk_folder.clicked.connect(
-            self._choose_apk_folder
-        )
+        choose_apk_folder.clicked.connect(self._choose_apk_folder)
 
-        choose_jar = QPushButton(
-            "Choose Different JAR..."
-        )
+        choose_jar = QPushButton("Choose Different JAR...")
         choose_jar.setObjectName("secondaryButton")
-        choose_jar.clicked.connect(
-            self._choose_jar
-        )
+        choose_jar.clicked.connect(self._choose_jar)
 
-        replacement_buttons.addWidget(
-            choose_apk_folder
-        )
+        replacement_buttons.addWidget(choose_apk_folder)
         replacement_buttons.addWidget(choose_jar)
         replacement_buttons.addStretch()
 
@@ -536,18 +439,12 @@ class FullReleasePage(QWidget):
         self.log = QPlainTextEdit()
         self.log.setObjectName("installLog")
         self.log.setReadOnly(True)
-        self.log.setPlaceholderText(
-            "Full release update activity will appear here..."
-        )
+        self.log.setPlaceholderText("Full release update activity will appear here...")
 
-        self.run_button = QPushButton(
-            "Run Full Release Update"
-        )
+        self.run_button = QPushButton("Run Full Release Update")
         self.run_button.setObjectName("primaryButton")
         self.run_button.setEnabled(False)
-        self.run_button.clicked.connect(
-            self.run_release
-        )
+        self.run_button.clicked.connect(self.run_release)
 
         activity_layout.addLayout(activity_header)
         activity_layout.addWidget(self.progress)
@@ -576,31 +473,15 @@ class FullReleasePage(QWidget):
 
         self.load_thread = QThread()
         self.load_worker = ReleaseLoadWorker()
-        self.load_worker.moveToThread(
-            self.load_thread
-        )
+        self.load_worker.moveToThread(self.load_thread)
 
-        self.load_thread.started.connect(
-            self.load_worker.run
-        )
-        self.load_worker.status.connect(
-            self._append_log
-        )
-        self.load_worker.finished.connect(
-            self._show_sources
-        )
-        self.load_worker.failed.connect(
-            self._load_failed
-        )
-        self.load_worker.finished.connect(
-            self.load_thread.quit
-        )
-        self.load_worker.failed.connect(
-            self.load_thread.quit
-        )
-        self.load_thread.finished.connect(
-            self._cleanup_load_thread
-        )
+        self.load_thread.started.connect(self.load_worker.run)
+        self.load_worker.status.connect(self._append_log)
+        self.load_worker.finished.connect(self._show_sources)
+        self.load_worker.failed.connect(self._load_failed)
+        self.load_worker.finished.connect(self.load_thread.quit)
+        self.load_worker.failed.connect(self.load_thread.quit)
+        self.load_thread.finished.connect(self._cleanup_load_thread)
 
         self.load_thread.start()
 
@@ -617,25 +498,17 @@ class FullReleasePage(QWidget):
         self.release_combo.clear()
 
         for folder in folders:
-            self.release_combo.addItem(
-                f"{folder.name}  —  {folder}"
-            )
+            self.release_combo.addItem(f"{folder.name}  —  {folder}")
 
-        self.source_status.setText(
-            f"{len(devices)} device(s) • {len(folders)} release(s)"
-        )
+        self.source_status.setText(f"{len(devices)} device(s) • {len(folders)} release(s)")
 
-        self.build_plan_button.setEnabled(
-            bool(devices and folders)
-        )
+        self.build_plan_button.setEnabled(bool(devices and folders))
 
     def _load_failed(self, message: str) -> None:
         """Display release-source loading failure."""
 
         self.source_status.setText("Failed")
-        self._append_log(
-            f"✗ Could not load release sources: {message}"
-        )
+        self._append_log(f"✗ Could not load release sources: {message}")
 
     def _cleanup_load_thread(self) -> None:
         """Release source-loader references."""
@@ -659,16 +532,10 @@ class FullReleasePage(QWidget):
         folder = Path(selected)
 
         self.release_folders.append(folder)
-        self.release_combo.addItem(
-            f"{folder.name}  —  {folder}"
-        )
-        self.release_combo.setCurrentIndex(
-            len(self.release_folders) - 1
-        )
+        self.release_combo.addItem(f"{folder.name}  —  {folder}")
+        self.release_combo.setCurrentIndex(len(self.release_folders) - 1)
 
-        self.build_plan_button.setEnabled(
-            bool(self.devices)
-        )
+        self.build_plan_button.setEnabled(bool(self.devices))
 
     def _source_changed(self) -> None:
         """Invalidate the old release plan."""
@@ -682,11 +549,7 @@ class FullReleasePage(QWidget):
 
         index = self.release_combo.currentIndex()
 
-        if (
-            index < 0
-            or index >= len(self.release_folders)
-            or not self.devices
-        ):
+        if index < 0 or index >= len(self.release_folders) or not self.devices:
             return
 
         folder = self.release_folders[index]
@@ -697,20 +560,14 @@ class FullReleasePage(QWidget):
                 self.devices,
             )
         except Exception as error:
-            self._append_log(
-                f"✗ Could not build release plan: {error}"
-            )
+            self._append_log(f"✗ Could not build release plan: {error}")
             return
 
         self.skip_apks_checkbox.setChecked(False)
-        self.skip_jar_checkbox.setChecked(
-            not self.plan.upload_jar
-        )
+        self.skip_jar_checkbox.setChecked(not self.plan.upload_jar)
 
         self._append_log("")
-        self._append_log(
-            f"Selected release folder: {folder}"
-        )
+        self._append_log(f"Selected release folder: {folder}")
 
         self._render_plan()
 
@@ -725,23 +582,13 @@ class FullReleasePage(QWidget):
         rows = len(self.plan.apk_plan) + 1
         self.plan_table.setRowCount(rows)
 
-        for row, item in enumerate(
-            self.plan.apk_plan
-        ):
+        for row, item in enumerate(self.plan.apk_plan):
             if item.apk_path is None:
                 file_name = "NO MATCHING APK FOUND"
-                action = (
-                    "SKIP"
-                    if self.plan.install_apk
-                    else "SKIP"
-                )
+                action = "SKIP" if self.plan.install_apk else "SKIP"
             else:
                 file_name = item.apk_path.name
-                action = (
-                    "INSTALL"
-                    if self.plan.install_apk
-                    else "SKIP"
-                )
+                action = "INSTALL" if self.plan.install_apk else "SKIP"
 
             values = [
                 "APK",
@@ -764,11 +611,7 @@ class FullReleasePage(QWidget):
             jar_action = "SKIP"
         else:
             jar_name = self.plan.jar_file.name
-            jar_action = (
-                "UPLOAD"
-                if self.plan.upload_jar
-                else "SKIP"
-            )
+            jar_action = "UPLOAD" if self.plan.upload_jar else "SKIP"
 
         for column, value in enumerate(
             [
@@ -786,24 +629,11 @@ class FullReleasePage(QWidget):
 
         self.plan_table.resizeColumnsToContents()
 
-        missing_apks = any(
-            item.apk_path is None
-            for item in self.plan.apk_plan
-        )
+        missing_apks = any(item.apk_path is None for item in self.plan.apk_plan)
 
         actionable = (
-            (
-                self.plan.install_apk
-                and any(
-                    item.apk_path is not None
-                    for item in self.plan.apk_plan
-                )
-            )
-            or (
-                self.plan.upload_jar
-                and self.plan.jar_file is not None
-            )
-        )
+            self.plan.install_apk and any(item.apk_path is not None for item in self.plan.apk_plan)
+        ) or (self.plan.upload_jar and self.plan.jar_file is not None)
 
         self.run_button.setEnabled(actionable)
 
@@ -813,13 +643,8 @@ class FullReleasePage(QWidget):
                 "They will be skipped unless you choose another APK folder."
             )
 
-        if (
-            self.plan.jar_file is None
-            and self.plan.upload_jar
-        ):
-            self._append_log(
-                "⚠ Racer Groundlord JAR was not found."
-            )
+        if self.plan.jar_file is None and self.plan.upload_jar:
+            self._append_log("⚠ Racer Groundlord JAR was not found.")
 
     def _plan_option_changed(self) -> None:
         """Apply skip options to the current plan."""
@@ -835,9 +660,7 @@ class FullReleasePage(QWidget):
         if self.skip_jar_checkbox.isChecked():
             skip_jar_upload(self.plan)
         else:
-            self.plan.upload_jar = (
-                self.plan.jar_file is not None
-            )
+            self.plan.upload_jar = self.plan.jar_file is not None
 
         self._render_plan()
 
@@ -862,9 +685,7 @@ class FullReleasePage(QWidget):
         )
         self.skip_apks_checkbox.setChecked(False)
 
-        self._append_log(
-            f"APK source changed to: {selected}"
-        )
+        self._append_log(f"APK source changed to: {selected}")
         self._render_plan()
 
     def _choose_jar(self) -> None:
@@ -886,9 +707,7 @@ class FullReleasePage(QWidget):
         jar_path = Path(selected)
 
         if jar_path.name != "racer-groundlord.jar":
-            self._append_log(
-                "✗ JAR must be named racer-groundlord.jar"
-            )
+            self._append_log("✗ JAR must be named racer-groundlord.jar")
             return
 
         change_jar_file(
@@ -897,9 +716,7 @@ class FullReleasePage(QWidget):
         )
         self.skip_jar_checkbox.setChecked(False)
 
-        self._append_log(
-            f"JAR changed to: {jar_path}"
-        )
+        self._append_log(f"JAR changed to: {jar_path}")
         self._render_plan()
 
     def run_release(self) -> None:
@@ -912,26 +729,19 @@ class FullReleasePage(QWidget):
             self,
             "Run Full Release Update",
             "Run the APK and JAR actions shown in the release plan?",
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
 
         if confirmation != QMessageBox.StandardButton.Yes:
-            self._append_log(
-                "Full release update cancelled."
-            )
+            self._append_log("Full release update cancelled.")
             return
 
         self.run_button.setEnabled(False)
         self.build_plan_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
 
-        total_steps = (
-            len(self.plan.apk_plan)
-            if self.plan.install_apk
-            else 0
-        ) + (
+        total_steps = (len(self.plan.apk_plan) if self.plan.install_apk else 0) + (
             1 if self.plan.upload_jar else 0
         )
 
@@ -943,45 +753,21 @@ class FullReleasePage(QWidget):
 
         self.activity_status.setText("Running")
         self._append_log("")
-        self._append_log(
-            "Starting full release update..."
-        )
+        self._append_log("Starting full release update...")
 
         self.execution_thread = QThread()
-        self.execution_worker = ReleaseExecutionWorker(
-            self.plan
-        )
-        self.execution_worker.moveToThread(
-            self.execution_thread
-        )
+        self.execution_worker = ReleaseExecutionWorker(self.plan)
+        self.execution_worker.moveToThread(self.execution_thread)
 
-        self.execution_thread.started.connect(
-            self.execution_worker.run
-        )
-        self.execution_worker.status.connect(
-            self._append_log
-        )
-        self.execution_worker.progress.connect(
-            self._update_progress
-        )
-        self.execution_worker.jar_transfer.connect(
-            self._update_jar_transfer
-        )
-        self.execution_worker.finished.connect(
-            self._show_results
-        )
-        self.execution_worker.failed.connect(
-            self._execution_failed
-        )
-        self.execution_worker.finished.connect(
-            self.execution_thread.quit
-        )
-        self.execution_worker.failed.connect(
-            self.execution_thread.quit
-        )
-        self.execution_thread.finished.connect(
-            self._cleanup_execution_thread
-        )
+        self.execution_thread.started.connect(self.execution_worker.run)
+        self.execution_worker.status.connect(self._append_log)
+        self.execution_worker.progress.connect(self._update_progress)
+        self.execution_worker.jar_transfer.connect(self._update_jar_transfer)
+        self.execution_worker.finished.connect(self._show_results)
+        self.execution_worker.failed.connect(self._execution_failed)
+        self.execution_worker.finished.connect(self.execution_thread.quit)
+        self.execution_worker.failed.connect(self.execution_thread.quit)
+        self.execution_thread.finished.connect(self._cleanup_execution_thread)
 
         self.execution_thread.start()
 
@@ -1009,9 +795,7 @@ class FullReleasePage(QWidget):
             return
 
         percent = int((transferred / total) * 100)
-        self.activity_status.setText(
-            f"Uploading JAR {percent}%"
-        )
+        self.activity_status.setText(f"Uploading JAR {percent}%")
 
     def _show_results(
         self,
@@ -1027,22 +811,15 @@ class FullReleasePage(QWidget):
         self._append_log("")
         self._append_log("Full Release Update Results")
 
-        results_by_serial = {
-            result.device.serial: result
-            for result in apk_results
-        }
+        results_by_serial = {result.device.serial: result for result in apk_results}
 
         for item in self.plan.apk_plan:
             if not self.plan.install_apk:
                 result_text = "SKIPPED"
             elif item.apk_path is None:
-                result_text = (
-                    "SKIPPED - No matching APK"
-                )
+                result_text = "SKIPPED - No matching APK"
             else:
-                result = results_by_serial.get(
-                    item.device.serial
-                )
+                result = results_by_serial.get(item.device.serial)
 
                 if result is None:
                     result_text = "NOT RUN"
@@ -1051,20 +828,12 @@ class FullReleasePage(QWidget):
                 elif result.status == "skipped":
                     result_text = "SKIPPED"
                 else:
-                    result_text = (
-                        f"FAILED - {result.message}"
-                        if result.message
-                        else "FAILED"
-                    )
+                    result_text = f"FAILED - {result.message}" if result.message else "FAILED"
 
-            self._append_log(
-                f"APK | {item.device.name} | {result_text}"
-            )
+            self._append_log(f"APK | {item.device.name} | {result_text}")
 
         if jar_blocked:
-            jar_text = (
-                "NOT RUN - APK installation failed"
-            )
+            jar_text = "NOT RUN - APK installation failed"
         elif not self.plan.upload_jar:
             jar_text = "SKIPPED"
         elif jar_result is True:
@@ -1074,31 +843,18 @@ class FullReleasePage(QWidget):
         else:
             jar_text = "NOT RUN"
 
-        self._append_log(
-            f"JAR | Racer Groundlord | {jar_text}"
-        )
+        self._append_log(f"JAR | Racer Groundlord | {jar_text}")
         self._append_log("")
-        self._append_log(
-            "Full release update finished."
-        )
+        self._append_log("Full release update finished.")
 
-        failed = any(
-            result.status == "failed"
-            for result in apk_results
-        ) or jar_result is False
+        failed = any(result.status == "failed" for result in apk_results) or jar_result is False
 
-        self.activity_status.setText(
-            "Completed with errors"
-            if failed
-            else "✓ Completed"
-        )
+        self.activity_status.setText("Completed with errors" if failed else "✓ Completed")
 
     def _execution_failed(self, message: str) -> None:
         """Display unexpected release execution failure."""
 
-        self._append_log(
-            f"✗ Full release update failed: {message}"
-        )
+        self._append_log(f"✗ Full release update failed: {message}")
         self.activity_status.setText("Failed")
 
     def _cleanup_execution_thread(self) -> None:
@@ -1107,12 +863,8 @@ class FullReleasePage(QWidget):
         self.execution_worker = None
         self.execution_thread = None
         self.refresh_button.setEnabled(True)
-        self.build_plan_button.setEnabled(
-            bool(self.devices and self.release_folders)
-        )
-        self.run_button.setEnabled(
-            self.plan is not None
-        )
+        self.build_plan_button.setEnabled(bool(self.devices and self.release_folders))
+        self.run_button.setEnabled(self.plan is not None)
 
     def _append_log(self, message: str) -> None:
         """Append one deployment activity message."""

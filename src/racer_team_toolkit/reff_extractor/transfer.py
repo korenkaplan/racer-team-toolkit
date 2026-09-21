@@ -104,10 +104,7 @@ def pull_reff_files(
             reff_files,
             start=1,
         ):
-            description = (
-                f"REFF: {get_transfer_verb()} "
-                f"{file_number} of {total_reff_files} files"
-            )
+            description = f"REFF: {get_transfer_verb()} {file_number} of {total_reff_files} files"
             _emit_status(
                 status_callback,
                 f"{description}: {PurePosixPath(remote_file).name}",
@@ -189,8 +186,7 @@ def pull_videos(
             start=1,
         ):
             description = (
-                f"Videos: {get_transfer_verb()} "
-                f"{file_number} of {total_video_files} files"
+                f"Videos: {get_transfer_verb()} {file_number} of {total_video_files} files"
             )
             _emit_status(
                 status_callback,
