@@ -327,7 +327,17 @@ class FullReleasePage(QWidget):
         self.execution_thread: QThread | None = None
         self.execution_worker: ReleaseExecutionWorker | None = None
 
+        self._initial_load_done = False
+
         self._build_ui()
+
+    def on_activated(self) -> None:
+        """Load release sources the first time this page is opened."""
+
+        if self._initial_load_done:
+            return
+
+        self._initial_load_done = True
         self.refresh_sources()
 
     def _build_ui(self) -> None:
