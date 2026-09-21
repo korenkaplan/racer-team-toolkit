@@ -1,9 +1,8 @@
 """Reusable APK installer operations."""
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
