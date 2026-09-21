@@ -197,8 +197,17 @@ class ImuRecordingsPage(QWidget):
         self.download_worker: ImuDownloadWorker | None = None
 
         self.destination = get_local_imu_directory()
+        self._initial_load_done = False
 
         self._build_ui()
+
+    def on_activated(self) -> None:
+        """Load recordings the first time this page is opened."""
+
+        if self._initial_load_done:
+            return
+
+        self._initial_load_done = True
         self.load_recordings()
 
     def _build_ui(self) -> None:
