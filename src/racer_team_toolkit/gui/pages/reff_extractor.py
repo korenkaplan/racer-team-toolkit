@@ -323,7 +323,17 @@ class ReffExtractorPage(QWidget):
         self.extraction_thread: QThread | None = None
         self.extraction_worker: ExtractionWorker | None = None
 
+        self._initial_load_done = False
+
         self._build_ui()
+
+    def on_activated(self) -> None:
+        """Check devices the first time this page is opened."""
+
+        if self._initial_load_done:
+            return
+
+        self._initial_load_done = True
         self.refresh_devices()
 
     def _build_ui(self) -> None:
