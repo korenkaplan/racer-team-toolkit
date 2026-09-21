@@ -1,5 +1,6 @@
 """SSH and JAR management functions."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import paramiko
@@ -30,6 +31,8 @@ from racer_team_toolkit.ssh.functions import (
 from racer_team_toolkit.ui.functions import select_menu
 
 console = Console()
+
+TransferProgressCallback = Callable[[int, int], None] | None
 
 
 def stop_screen_sessions(ssh: paramiko.SSHClient) -> bool:
@@ -231,6 +234,8 @@ def folder_contains_groundlord_jar(folder: Path) -> bool:
 def upload_jar_file(
     ssh: paramiko.SSHClient,
     local_jar_path: Path,
+    *,
+    progress_callback: TransferProgressCallback = None,
 ) -> bool:
     """Upload the selected Groundlord JAR with transfer progress."""
 
@@ -260,6 +265,12 @@ def upload_jar_file(
                         completed=transferred,
                         total=total,
                     )
+
+                    if progress_callback is not None:
+                        progress_callback(
+                            transferred,
+                            total,
+                        )
 
                 sftp.put(
                     str(local_jar_path),
