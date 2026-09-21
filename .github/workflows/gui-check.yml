@@ -29,7 +29,9 @@ jobs:
           git diff
 
       - name: Check formatting
-        run: uv run ruff format --check .
+        run: |
+          uv run ruff format .
+          git diff
 
       - name: Run tests
         run: uv run pytest
