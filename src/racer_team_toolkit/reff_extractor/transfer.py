@@ -2,8 +2,8 @@ import os
 import shutil
 import subprocess
 import time
-from collections.abc import Callable
 from pathlib import PurePosixPath
+from typing import Callable
 
 from rich.progress import (
     BarColumn,
