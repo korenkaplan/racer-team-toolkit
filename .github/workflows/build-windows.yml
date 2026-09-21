@@ -1,9 +1,10 @@
-name: Build Windows EXE
+name: Build Windows CLI and GUI EXEs
 
 on:
   push:
     branches:
       - main
+      - feature/pyside6-gui
   workflow_dispatch:
 
 jobs:
@@ -38,18 +39,15 @@ jobs:
           $platformTools = Join-Path $env:ANDROID_HOME "platform-tools"
 
           if (-not (Test-Path "$platformTools\adb.exe")) {
-              Write-Error "adb.exe was not found in $platformTools"
-              exit 1
+              throw "adb.exe was not found in $platformTools"
           }
 
           if (-not (Test-Path "$platformTools\AdbWinApi.dll")) {
-              Write-Error "AdbWinApi.dll was not found in $platformTools"
-              exit 1
+              throw "AdbWinApi.dll was not found in $platformTools"
           }
 
           if (-not (Test-Path "$platformTools\AdbWinUsbApi.dll")) {
-              Write-Error "AdbWinUsbApi.dll was not found in $platformTools"
-              exit 1
+              throw "AdbWinUsbApi.dll was not found in $platformTools"
           }
 
           Write-Host "Using Android Platform Tools from: $platformTools"
@@ -60,8 +58,7 @@ jobs:
           SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:SSH_PASSWORD)) {
-              Write-Error "SSH_PASSWORD GitHub secret is missing"
-              exit 1
+              throw "SSH_PASSWORD GitHub secret is missing"
           }
 
           @"
@@ -71,12 +68,13 @@ jobs:
 
           Write-Host "Production environment file created."
 
-      - name: Build Windows executable
+      - name: Build CLI executable
         shell: pwsh
         run: |
           $platformTools = Join-Path $env:ANDROID_HOME "platform-tools"
 
           uv run pyinstaller `
+            --clean `
             --onefile `
             --name racer-team-toolkit `
             --icon "assets/racer-team-toolkit.ico" `
@@ -86,19 +84,46 @@ jobs:
             --add-binary "$platformTools\AdbWinUsbApi.dll;." `
             src/racer_team_toolkit/main.py
 
-      - name: Verify executable exists
+      - name: Build GUI executable
+        shell: pwsh
+        run: |
+          $platformTools = Join-Path $env:ANDROID_HOME "platform-tools"
+
+          uv run pyinstaller `
+            --clean `
+            --onefile `
+            --windowed `
+            --name racer-team-toolkit-gui `
+            --icon "assets/racer-team-toolkit.ico" `
+            --add-data ".env;." `
+            --add-binary "$platformTools\adb.exe;." `
+            --add-binary "$platformTools\AdbWinApi.dll;." `
+            --add-binary "$platformTools\AdbWinUsbApi.dll;." `
+            src/racer_team_toolkit/gui/main.py
+
+      - name: Verify executables exist
         shell: pwsh
         run: |
           if (-not (Test-Path "dist\racer-team-toolkit.exe")) {
-              Write-Error "Windows executable was not created"
-              exit 1
+              throw "CLI executable was not created"
           }
 
-          Write-Host "Windows executable created successfully."
+          if (-not (Test-Path "dist\racer-team-toolkit-gui.exe")) {
+              throw "GUI executable was not created"
+          }
 
-      - name: Upload Windows executable
+          Write-Host "Both Windows executables were created successfully."
+
+      - name: Upload CLI executable
         uses: actions/upload-artifact@v4
         with:
-          name: racer-team-toolkit-windows
+          name: racer-team-toolkit-cli-windows
           path: dist/racer-team-toolkit.exe
+          if-no-files-found: error
+
+      - name: Upload GUI executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: racer-team-toolkit-gui-windows
+          path: dist/racer-team-toolkit-gui.exe
           if-no-files-found: error
