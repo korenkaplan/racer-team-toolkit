@@ -157,7 +157,17 @@ class FoldersResetPage(QWidget):
         self.apply_thread: QThread | None = None
         self.apply_worker: ResetApplyWorker | None = None
 
+        self._initial_load_done = False
+
         self._build_ui()
+
+    def on_activated(self) -> None:
+        """Load devices the first time this page is opened."""
+
+        if self._initial_load_done:
+            return
+
+        self._initial_load_done = True
         self.refresh_devices()
 
     def _build_ui(self) -> None:
