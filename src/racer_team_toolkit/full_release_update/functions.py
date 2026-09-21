@@ -16,7 +16,6 @@ from racer_team_toolkit.config import AndroidDevice
 from racer_team_toolkit.full_release_update.dataclasses import ReleaseUpdatePlan
 from racer_team_toolkit.jar_management.config import JAR_FILENAME
 from racer_team_toolkit.jar_management.functions import (
-    folder_contains_groundlord_jar,
     select_jar_file,
     upload_selected_jar,
 )
@@ -29,39 +28,54 @@ from racer_team_toolkit.ui.functions import (
 
 
 def get_release_folders() -> list[Path]:
-    """Return Downloads locations that contain APK files or the Groundlord JAR."""
+    """Return Downloads locations containing direct APK or JAR files."""
 
     downloads_path = Path.home() / "Downloads"
-    excluded_suffixes = {".app", ".download", ".bundle", ".framework"}
+    excluded_suffixes = {
+        ".app",
+        ".download",
+        ".bundle",
+        ".framework",
+    }
+
+    def contains_release_files(
+        folder: Path,
+    ) -> bool:
+        has_apk = contains_apk_files(
+            folder,
+        )
+
+        has_jar = (folder / JAR_FILENAME).is_file()
+
+        return has_apk or has_jar
 
     folders = [
         path
         for path in downloads_path.iterdir()
         if path.is_dir()
         and path.suffix.lower() not in excluded_suffixes
-        and (contains_apk_files(path) or folder_contains_groundlord_jar(path))
+        and contains_release_files(path)
     ]
 
-    matching_locations = (
-        [downloads_path]
-        if contains_apk_files(downloads_path) or folder_contains_groundlord_jar(downloads_path)
-        else []
-    )
+    matching_locations = [downloads_path] if contains_release_files(downloads_path) else []
 
-    return [*matching_locations, *sorted(folders)]
+    return [
+        *matching_locations,
+        *sorted(folders),
+    ]
 
 
-def find_groundlord_jar(folder: Path) -> Path | None:
-    """Return the Groundlord JAR from a release folder, if present."""
+def find_groundlord_jar(
+    folder: Path,
+) -> Path | None:
+    """Return the Groundlord JAR directly from the selected folder."""
 
-    return next(
-        (
-            path
-            for path in folder.rglob(JAR_FILENAME)
-            if path.is_file() and path.name == JAR_FILENAME
-        ),
-        None,
-    )
+    jar_path = folder / JAR_FILENAME
+
+    if jar_path.is_file():
+        return jar_path
+
+    return None
 
 
 def build_release_update_plan(
@@ -157,6 +171,115 @@ def run_jar_update(plan: ReleaseUpdatePlan) -> bool | None:
         return False
 
     return upload_selected_jar(plan.jar_file)
+
+
+def print_release_update_results(
+    plan: ReleaseUpdatePlan,
+    apk_results: list[InstallationResult],
+    jar_result: bool | None,
+    jar_blocked_by_apk_failure: bool = False,
+) -> None:
+    """Display the final results of the full release update."""
+
+    table = Table(
+        title="Full Release Update Results",
+        show_lines=True,
+    )
+
+    table.add_column("Component")
+    table.add_column("Target")
+    table.add_column("Result")
+
+    apk_results_by_serial = {result.device.serial: result for result in apk_results}
+
+    for item in plan.apk_plan:
+        if not plan.install_apk:
+            result_text = Text(
+                "SKIPPED",
+                style="yellow",
+            )
+
+        elif item.apk_path is None:
+            result_text = Text(
+                "SKIPPED - No matching APK",
+                style="yellow",
+            )
+
+        else:
+            result = apk_results_by_serial.get(
+                item.device.serial,
+            )
+
+            if result is None:
+                result_text = Text(
+                    "NOT RUN",
+                    style="yellow",
+                )
+
+            elif result.status == "success":
+                result_text = Text(
+                    "SUCCESS",
+                    style="green",
+                )
+
+            elif result.status == "skipped":
+                result_text = Text(
+                    "SKIPPED",
+                    style="yellow",
+                )
+
+            else:
+                message = f"FAILED\n{result.message}" if result.message else "FAILED"
+
+                result_text = Text(
+                    message,
+                    style="red",
+                )
+
+        table.add_row(
+            "APK",
+            item.device.name,
+            result_text,
+        )
+
+    if jar_blocked_by_apk_failure:
+        jar_result_text = Text(
+            "NOT RUN - APK installation failed",
+            style="yellow",
+        )
+
+    elif not plan.upload_jar:
+        jar_result_text = Text(
+            "SKIPPED",
+            style="yellow",
+        )
+
+    elif jar_result is True:
+        jar_result_text = Text(
+            "SUCCESS",
+            style="green",
+        )
+
+    elif jar_result is False:
+        jar_result_text = Text(
+            "FAILED",
+            style="red",
+        )
+
+    else:
+        jar_result_text = Text(
+            "NOT RUN",
+            style="yellow",
+        )
+
+    table.add_row(
+        "JAR",
+        "Racer Groundlord",
+        jar_result_text,
+    )
+
+    console.print()
+    console.print(table)
 
 
 def choose_apk_folder(
@@ -373,3 +496,92 @@ def choose_release_folder(
     )
 
     return folders[folder_index]
+
+
+def execute_release_update(
+    plan: ReleaseUpdatePlan,
+) -> None:
+    """Run APK updates followed by the JAR update."""
+
+    console.print()
+    console.rule("[bold]APK Updates[/bold]")
+    console.print()
+
+    apk_results = run_apk_updates(
+        plan,
+        console,
+    )
+
+    apk_failed = any(result.status == "failed" for result in apk_results)
+
+    jar_blocked_by_apk_failure = apk_failed and plan.upload_jar
+
+    console.print()
+    console.rule("[bold]JAR Update[/bold]")
+    console.print()
+
+    if jar_blocked_by_apk_failure:
+        console.print("[red]One or more APK installations failed.[/red]")
+        console.print(
+            "[yellow]"
+            "JAR upload was not started because "
+            "the APK update did not complete successfully."
+            "[/yellow]"
+        )
+
+        jar_result = None
+
+    else:
+        jar_result = run_jar_update(
+            plan,
+        )
+
+    print_release_update_results(
+        plan,
+        apk_results,
+        jar_result,
+        jar_blocked_by_apk_failure,
+    )
+
+
+def prepare_release_update(
+    connected_devices: list[AndroidDevice],
+) -> ReleaseUpdatePlan | None:
+    """Select a release folder and prepare the final release update plan."""
+
+    release_folders = get_release_folders()
+
+    if not release_folders:
+        print_error("No release folders containing APK or JAR files were found in Downloads.")
+        return None
+
+    release_folder = choose_release_folder(
+        release_folders,
+    )
+
+    plan = build_release_update_plan(
+        release_folder,
+        connected_devices,
+    )
+
+    console.print()
+    console.print(f"Selected release folder: [bold]{release_folder}[/bold]")
+
+    print_release_update_plan(
+        plan,
+    )
+
+    if not resolve_missing_apks(plan):
+        return None
+
+    if not resolve_missing_jar(plan):
+        return None
+
+    console.print()
+    console.print("[bold]Final update plan:[/bold]")
+
+    print_release_update_plan(
+        plan,
+    )
+
+    return plan
