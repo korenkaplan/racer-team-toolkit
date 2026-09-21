@@ -76,6 +76,12 @@ class MainWindow(QMainWindow):
 
         self.pages.setCurrentIndex(index)
 
+        page = self.pages.currentWidget()
+        on_activated = getattr(page, "on_activated", None)
+
+        if callable(on_activated):
+            on_activated()
+
         buttons = self.sidebar.button_group.buttons()
 
         if 0 <= index < len(buttons):
