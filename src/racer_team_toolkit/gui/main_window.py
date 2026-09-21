@@ -7,6 +7,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from racer_team_toolkit.gui.pages.apk_installer import (
+    ApkInstallerPage,
+)
 from racer_team_toolkit.gui.pages.home import (
     HomePage,
 )
@@ -88,10 +91,7 @@ class MainWindow(QMainWindow):
         )
 
         self.pages.addWidget(
-            PlaceholderPage(
-                "APK Installer",
-                "Install APK files on connected Android devices.",
-            )
+            ApkInstallerPage()
         )
 
         self.pages.addWidget(
@@ -206,6 +206,93 @@ class MainWindow(QMainWindow):
 #secondaryButton:hover {
     background-color: #22364c;
     border-color: #397ccb;
+}
+
+#primaryButton {
+    background-color: #1f6feb;
+    border: 1px solid #2f81f7;
+    border-radius: 7px;
+    padding: 10px 18px;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+#primaryButton:hover {
+    background-color: #2f81f7;
+}
+
+#primaryButton:disabled {
+    background-color: #243244;
+    border-color: #304052;
+    color: #6f8194;
+}
+
+#workflowCard {
+    background-color: #172333;
+    border: 1px solid #26384d;
+    border-radius: 12px;
+}
+
+#workflowSteps {
+    background-color: transparent;
+    color: #8192a6;
+    font-size: 12px;
+}
+
+#sectionTitle {
+    background-color: transparent;
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+#mutedText {
+    background-color: transparent;
+    color: #8fa0b3;
+    font-size: 12px;
+}
+
+#selectionRow {
+    background-color: #111c29;
+    border: 1px solid #26384d;
+    border-radius: 8px;
+}
+
+#successText {
+    background-color: transparent;
+    color: #45d483;
+}
+
+#warningText {
+    background-color: transparent;
+    color: #eab308;
+}
+
+#missingText {
+    background-color: transparent;
+    color: #ff6b6b;
+    font-weight: 600;
+}
+
+#folderCombo {
+    background-color: #111c29;
+    border: 1px solid #30465f;
+    border-radius: 7px;
+    padding: 9px 12px;
+    color: #e8eef5;
+}
+
+#installProgress {
+    background-color: #111c29;
+    border: 1px solid #30465f;
+    border-radius: 7px;
+    min-height: 20px;
+    text-align: center;
+}
+
+#installProgress::chunk {
+    background-color: #1f6feb;
+    border-radius: 6px;
 }
             QMainWindow {
                 background-color: #0f1720;
