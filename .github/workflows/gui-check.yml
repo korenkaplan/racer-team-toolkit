@@ -6,6 +6,9 @@ on:
       - feature/pyside6-gui
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -23,18 +26,36 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      - name: Run Ruff
+      - name: Apply Ruff fixes
         run: |
           uv run ruff check . --fix
-          git diff
+          uv run ruff format .
+
+      - name: Commit formatting fixes
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Apply Ruff formatting"
+          git push
+
+      - name: Run Ruff
+        run: uv run ruff check .
 
       - name: Check formatting
-        run: |
-          uv run ruff format .
-          git diff
+        run: uv run ruff format --check .
 
       - name: Run tests
         run: uv run pytest
+
+      - name: Install Qt runtime libraries
+        run: sudo apt-get update && sudo apt-get install -y libegl1
 
       - name: Import GUI modules
         run: >
