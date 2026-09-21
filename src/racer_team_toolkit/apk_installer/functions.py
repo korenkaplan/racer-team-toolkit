@@ -1,5 +1,6 @@
 """Reusable APK installer operations."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -8,6 +9,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from racer_team_toolkit.adb.functions import run_adb_command
 from racer_team_toolkit.config import AndroidDevice
+
+
+StatusCallback = Callable[[str], None] | None
 
 
 @dataclass
@@ -25,6 +29,16 @@ class InstallationResult:
     device: AndroidDevice
     status: str
     message: str = ""
+
+
+def _emit_status(
+    callback: StatusCallback,
+    message: str,
+) -> None:
+    """Send a human-readable status update when a callback is provided."""
+
+    if callback is not None:
+        callback(message)
 
 
 def get_folders_in_downloads() -> list[Path]:
@@ -67,50 +81,93 @@ def build_installation_plan(folder: Path, devices: list[AndroidDevice]) -> list[
     ]
 
 
-def run_installation(plan: InstallationPlan, console) -> InstallationResult:
+def run_installation(
+    plan: InstallationPlan,
+    console,
+    *,
+    status_callback: StatusCallback = None,
+) -> InstallationResult:
     """Uninstall, install, and configure one device's APK."""
 
     if plan.apk_path is None:
+        _emit_status(
+            status_callback,
+            f"⚠ {plan.device.name}: No matching APK found.",
+        )
         return InstallationResult(plan.device, "skipped", "No matching APK found")
 
     device = plan.device
+
     console.rule(device.name)
     console.print(f"Serial: {device.serial}")
     console.print(f"APK: {plan.apk_path.name}")
     console.rule()
 
-    uninstall_error = uninstall_application(device, console)
+    _emit_status(status_callback, f"▶ {device.name}")
+    _emit_status(status_callback, f"Serial: {device.serial}")
+    _emit_status(status_callback, f"APK: {plan.apk_path.name}")
+
+    uninstall_error = uninstall_application(
+        device,
+        console,
+        status_callback=status_callback,
+    )
     if uninstall_error:
         return InstallationResult(device, "failed", uninstall_error)
 
-    configure_install_verification(device, console)
+    configure_install_verification(
+        device,
+        console,
+        status_callback=status_callback,
+    )
 
     install_error = run_step(
         console,
         "Installing new APK...",
         "APK installed",
         ["-s", device.serial, "install", "-r", str(plan.apk_path)],
+        status_callback=status_callback,
     )
     if install_error:
         return InstallationResult(device, "failed", install_error)
 
-    permission_error = grant_permissions(device, console)
+    permission_error = grant_permissions(
+        device,
+        console,
+        status_callback=status_callback,
+    )
     if permission_error:
         return InstallationResult(device, "failed", permission_error)
 
+    _emit_status(
+        status_callback,
+        f"✓ {device.name} installation completed.",
+    )
+
     return InstallationResult(device, "success")
 
-
-def uninstall_application(device: AndroidDevice, console) -> Optional[str]:
+def uninstall_application(
+    device: AndroidDevice,
+    console,
+    *,
+    status_callback: StatusCallback = None,
+) -> Optional[str]:
     """Uninstall the application if it is currently installed."""
 
+    _emit_status(
+        status_callback,
+        "Checking whether the current application is installed...",
+    )
+
     if not is_package_installed(device):
-        console.print("[yellow]○ Application not installed — skipping uninstall[/yellow]")
+        message = "Application not installed — skipping uninstall"
+        console.print(f"[yellow]○ {message}[/yellow]")
+        _emit_status(status_callback, f"○ {message}")
         return None
 
     return run_step(
         console,
-        "3.1 Uninstalling current application...",
+        "Uninstalling current application...",
         "Application uninstalled",
         [
             "-s",
@@ -118,17 +175,29 @@ def uninstall_application(device: AndroidDevice, console) -> Optional[str]:
             "uninstall",
             device.package_name,
         ],
+        status_callback=status_callback,
     )
 
-
-def configure_install_verification(device: AndroidDevice, console) -> None:
+def configure_install_verification(
+    device: AndroidDevice,
+    console,
+    *,
+    status_callback: StatusCallback = None,
+) -> None:
     """Disable Android install verification before streaming the APK."""
+
+    _emit_status(
+        status_callback,
+        "Configuring Android install verification...",
+    )
 
     settings = (
         ("package_verifier_enable", "0"),
         ("verifier_verify_adb_installs", "0"),
         ("package_verifier_user_consent", "-1"),
     )
+
+    had_warning = False
 
     for setting, value in settings:
         result = run_adb_command(
@@ -144,12 +213,37 @@ def configure_install_verification(device: AndroidDevice, console) -> None:
             ]
         )
         if result.returncode != 0:
-            console.print(f"[yellow]Warning: could not configure {setting}[/yellow]")
+            had_warning = True
+            message = f"Warning: could not configure {setting}"
+            console.print(f"[yellow]{message}[/yellow]")
+            _emit_status(status_callback, f"⚠ {message}")
             print_command_output(console, result)
 
+    if had_warning:
+        _emit_status(
+            status_callback,
+            "⚠ Install verification configured with warnings.",
+        )
+    else:
+        _emit_status(
+            status_callback,
+            "✓ Install verification configured.",
+        )
 
-def run_step(console, message: str, success_message: str, command: list[str]) -> Optional[str]:
+def run_step(
+    console,
+    message: str,
+    success_message: str,
+    command: list[str],
+    *,
+    status_callback: StatusCallback = None,
+) -> Optional[str]:
     """Run one ADB step with a worker-facing spinner and concise result."""
+
+    _emit_status(
+        status_callback,
+        message.rstrip("."),
+    )
 
     with Progress(
         SpinnerColumn(),
@@ -162,11 +256,19 @@ def run_step(console, message: str, success_message: str, command: list[str]) ->
 
     if result.returncode != 0:
         print_command_failure(console, message.rstrip("."), result)
-        return command_failure_reason(result)
+        reason = command_failure_reason(result)
+        _emit_status(
+            status_callback,
+            f"✗ {message.rstrip('.')} failed: {reason}",
+        )
+        return reason
 
     console.print(f"[green]✓ {success_message}[/green]")
+    _emit_status(
+        status_callback,
+        f"✓ {success_message}",
+    )
     return None
-
 
 def command_output(result) -> str:
     """Combine ADB stdout and stderr for reliable diagnostics."""
@@ -197,14 +299,30 @@ def command_failure_reason(result) -> str:
     return f"ADB exit code {result.returncode}: {output}"
 
 
-def grant_permissions(device: AndroidDevice, console) -> Optional[str]:
+def grant_permissions(
+    device: AndroidDevice,
+    console,
+    *,
+    status_callback: StatusCallback = None,
+) -> Optional[str]:
     """Grant the permissions configured for an installed device package."""
+
+    _emit_status(
+        status_callback,
+        "Granting application permissions...",
+    )
 
     if not device.permissions:
         console.print("[green]✓ Permissions granted[/green]")
+        _emit_status(status_callback, "✓ Permissions granted")
         return None
 
     for permission in device.permissions:
+        _emit_status(
+            status_callback,
+            f"Granting {permission}...",
+        )
+
         result = run_adb_command(
             [
                 "-s",
@@ -219,11 +337,16 @@ def grant_permissions(device: AndroidDevice, console) -> Optional[str]:
         if result.returncode != 0:
             console.print(f"[red]✗ Failed to grant {permission}[/red]")
             print_command_output(console, result)
-            return command_failure_reason(result)
+            reason = command_failure_reason(result)
+            _emit_status(
+                status_callback,
+                f"✗ Failed to grant {permission}: {reason}",
+            )
+            return reason
 
     console.print("[green]✓ Permissions granted[/green]")
+    _emit_status(status_callback, "✓ Permissions granted")
     return None
-
 
 def is_package_installed(device: AndroidDevice) -> bool:
     """Return whether the configured package is installed on the device."""
@@ -242,12 +365,17 @@ def is_package_installed(device: AndroidDevice) -> bool:
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
-def grant_manage_all_files(device: AndroidDevice, console) -> str | None:
+def grant_manage_all_files(
+    device: AndroidDevice,
+    console,
+    *,
+    status_callback: StatusCallback = None,
+) -> str | None:
     """Grant Manage All Files access to the installed application."""
 
     return run_step(
         console,
-        "3.4 Granting all files access...",
+        "Granting all files access...",
         "All files access granted",
         [
             "-s",
@@ -259,4 +387,5 @@ def grant_manage_all_files(device: AndroidDevice, console) -> str | None:
             "MANAGE_EXTERNAL_STORAGE",
             "allow",
         ],
+        status_callback=status_callback,
     )
