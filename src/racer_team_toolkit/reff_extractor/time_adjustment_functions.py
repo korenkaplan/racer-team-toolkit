@@ -24,40 +24,90 @@ def get_device_time_info(
     device: AndroidDevice,
     pc_datetime: datetime,
 ) -> DeviceTimeInfo | None:
-    """Compare one Android device clock with the computer clock."""
+    """Compare absolute time and local wall-clock time with the computer."""
 
-    device_datetime = get_device_datetime(device)
+    device_epoch = get_device_epoch_seconds(device)
+    device_datetime = get_device_local_datetime(device)
 
-    if device_datetime is None:
+    if device_epoch is None or device_datetime is None:
         return None
 
-    difference_seconds = calculate_time_difference_seconds(
-        pc_datetime,
+    absolute_difference_seconds = pc_datetime.timestamp() - device_epoch
+    local_difference_seconds = calculate_time_difference_seconds(
+        pc_datetime.replace(microsecond=0),
         device_datetime,
+    )
+
+    absolute_time_needs_fix = device_time_needs_fix(
+        absolute_difference_seconds,
+    )
+    local_time_needs_fix = device_time_needs_fix(
+        local_difference_seconds,
     )
 
     return DeviceTimeInfo(
         device=device,
         device_datetime=device_datetime,
-        difference_seconds=difference_seconds,
-        needs_fix=device_time_needs_fix(difference_seconds),
+        difference_seconds=absolute_difference_seconds,
+        needs_fix=(absolute_time_needs_fix or local_time_needs_fix),
+        absolute_difference_seconds=absolute_difference_seconds,
+        local_difference_seconds=local_difference_seconds,
+        absolute_time_needs_fix=absolute_time_needs_fix,
+        local_time_needs_fix=local_time_needs_fix,
     )
 
 
-def get_device_datetime(device: AndroidDevice) -> datetime | None:
-    """Read the current date and time from an Android device."""
+def get_device_epoch_seconds(device: AndroidDevice) -> int | None:
+    """Read the Android device's absolute Unix time."""
 
-    result = run_adb_command(["-s", device.serial, "shell", "date", "+%s"])
+    result = run_adb_command(
+        [
+            "-s",
+            device.serial,
+            "shell",
+            "date",
+            "+%s",
+        ]
+    )
 
     if result.returncode != 0:
         return None
 
     try:
-        timestamp = int(result.stdout.strip())
+        return int(result.stdout.strip())
     except ValueError:
         return None
 
-    return datetime.fromtimestamp(timestamp)
+
+def get_device_local_datetime(device: AndroidDevice) -> datetime | None:
+    """Read the Android device's displayed local wall-clock time."""
+
+    result = run_adb_command(
+        [
+            "-s",
+            device.serial,
+            "shell",
+            "date",
+            "+%Y-%m-%d_%H:%M:%S",
+        ]
+    )
+
+    if result.returncode != 0:
+        return None
+
+    try:
+        return datetime.strptime(
+            result.stdout.strip(),
+            "%Y-%m-%d_%H:%M:%S",
+        )
+    except ValueError:
+        return None
+
+
+def get_device_datetime(device: AndroidDevice) -> datetime | None:
+    """Return the Android device's displayed local wall-clock time."""
+
+    return get_device_local_datetime(device)
 
 
 def calculate_time_difference_seconds(
@@ -133,17 +183,24 @@ def print_device_time_table(
     )
 
     table.add_column("Device")
-    table.add_column("Device Time")
-    table.add_column("Difference")
+    table.add_column("Device Local Time")
+    table.add_column("Absolute Diff")
+    table.add_column("Local Diff")
     table.add_column("Status")
 
     for device_info in time_info:
-        status = "[red]Needs Fix[/red]" if device_info.needs_fix else "[green]✓ OK[/green]"
+        if device_info.absolute_time_needs_fix:
+            status = "[red]Clock Needs Fix[/red]"
+        elif device_info.local_time_needs_fix:
+            status = "[yellow]Timezone / Local Time Needs Fix[/yellow]"
+        else:
+            status = "[green]✓ OK[/green]"
 
         table.add_row(
             device_info.device.name,
             device_info.device_datetime.strftime("%d-%m-%Y %H:%M:%S"),
-            format_time_difference(device_info.difference_seconds),
+            format_time_difference(device_info.absolute_difference_seconds),
+            format_time_difference(device_info.local_difference_seconds),
             status,
         )
 
@@ -215,13 +272,19 @@ def get_remote_files_from_wrong_date(
     device_info: DeviceTimeInfo,
     remote_path: str,
 ) -> list[str]:
-    """Return remote files created on the device's current incorrect date."""
+    """Return files affected by the device's absolute or local-clock problem."""
 
     matching_files = []
 
     remote_files = get_remote_files(
         device_info.device,
         remote_path,
+    )
+
+    target_date = (
+        device_info.device_datetime.date()
+        if device_info.absolute_time_needs_fix
+        else datetime.now().date()
     )
 
     for file_path in remote_files:
@@ -233,10 +296,9 @@ def get_remote_files_from_wrong_date(
         if timestamp is None:
             continue
 
-        if remote_file_matches_wrong_date(
-            timestamp,
-            device_info.device_datetime,
-        ):
+        file_datetime = datetime.fromtimestamp(timestamp)
+
+        if file_datetime.date() == target_date:
             matching_files.append(file_path)
 
     return matching_files
@@ -274,11 +336,14 @@ def apply_file_time_corrections(
     corrected_count = 0
 
     for correction in corrections:
-        timestamp_updated = set_remote_file_timestamp(
-            device,
-            correction.file_path,
-            correction.corrected_timestamp,
-        )
+        timestamp_updated = True
+
+        if correction.corrected_timestamp != correction.current_timestamp:
+            timestamp_updated = set_remote_file_timestamp(
+                device,
+                correction.file_path,
+                correction.corrected_timestamp,
+            )
 
         if not timestamp_updated:
             console.print(
@@ -365,9 +430,13 @@ def build_file_time_corrections(
         if current_timestamp is None:
             continue
 
-        corrected_timestamp = calculate_corrected_timestamp(
-            current_timestamp,
-            device_info.difference_seconds,
+        corrected_timestamp = (
+            calculate_corrected_timestamp(
+                current_timestamp,
+                device_info.absolute_difference_seconds,
+            )
+            if device_info.absolute_time_needs_fix
+            else current_timestamp
         )
 
         corrections.append(
@@ -468,13 +537,26 @@ def print_device_correction_plan(
     console.rule(f"[bold]{device_info.device.name}[/bold]")
 
     console.print(
-        f"Wrong device date: [yellow]{device_info.device_datetime.strftime('%d-%m-%Y')}[/yellow]"
+        "Device local time: "
+        f"[yellow]{device_info.device_datetime.strftime('%d-%m-%Y %H:%M:%S')}[/yellow]"
     )
 
     console.print(
-        "Time correction: "
-        f"[yellow]{format_time_difference(device_info.difference_seconds)}[/yellow]"
+        "Absolute time difference: "
+        f"[yellow]{format_time_difference(device_info.absolute_difference_seconds)}[/yellow]"
     )
+
+    console.print(
+        "Local clock difference: "
+        f"[yellow]{format_time_difference(device_info.local_difference_seconds)}[/yellow]"
+    )
+
+    if device_info.absolute_time_needs_fix:
+        console.print("[yellow]Action: correct file mtime and timestamp-based filenames.[/yellow]")
+    elif device_info.local_time_needs_fix:
+        console.print(
+            "[yellow]Action: keep absolute mtime unchanged and correct timestamp-based filenames.[/yellow]"
+        )
 
     console.print(f"REFF files found: [cyan]{reff_count}[/cyan]")
 
@@ -630,38 +712,105 @@ def get_remote_files_from_today(
 
 def build_corrected_reff_filename(
     corrected_timestamp: int,
-) -> str:
-    """Build a REFF filename from its corrected timestamp."""
+    filename: str | None = None,
+) -> str | None:
+    """Build a corrected REFF name while preserving known suffixes."""
 
     corrected_datetime = datetime.fromtimestamp(corrected_timestamp)
 
-    return corrected_datetime.strftime("%d_%m_%Y_%H_%M_%S") + ".reff"
+    if filename is None:
+        return corrected_datetime.strftime("%d_%m_%Y_%H_%M_%S") + ".reff"
+
+    match = re.fullmatch(
+        (
+            r"^(?P<prefix>.*?)"
+            r"\d{2}_\d{2}_\d{4}_\d{2}_\d{2}"
+            r"(?P<seconds>_\d{2})?"
+            r"(?P<number>_Number_\d+)?"
+            r"\.reff$"
+        ),
+        filename,
+        flags=re.IGNORECASE,
+    )
+
+    if match is None:
+        return None
+
+    timestamp_format = (
+        "%d_%m_%Y_%H_%M_%S"
+        if match.group("seconds")
+        else "%d_%m_%Y_%H_%M"
+    )
+
+    return (
+        f"{match.group('prefix')}"
+        f"{corrected_datetime.strftime(timestamp_format)}"
+        f"{match.group('number') or ''}"
+        ".reff"
+    )
 
 
 def build_corrected_video_filename(
     filename: str,
     corrected_timestamp: int,
 ) -> str | None:
-    """Return a corrected video filename when the filename contains a timestamp."""
-
-    pattern = (
-        r"^ScreenRec_"
-        r"\d{4}-\d{2}-\d{2}_"
-        r"\d{2}-\d{2}"
-        r"(?:-\d{2})?"
-        r"\.mp4$"
-    )
-
-    if not re.fullmatch(
-        pattern,
-        filename,
-        flags=re.IGNORECASE,
-    ):
-        return None
+    """Return a corrected name for a known timestamp-based video format."""
 
     corrected_datetime = datetime.fromtimestamp(corrected_timestamp)
 
-    return "ScreenRec_" + corrected_datetime.strftime("%Y-%m-%d_%H-%M-%S") + ".mp4"
+    screen_rec_match = re.fullmatch(
+        (
+            r"^(?P<prefix>ScreenRec_)"
+            r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}"
+            r"(?P<seconds>-\d{2})?"
+            r"(?P<number>_Number_\d+)?"
+            r"\.mp4$"
+        ),
+        filename,
+        flags=re.IGNORECASE,
+    )
+
+    if screen_rec_match is not None:
+        timestamp_format = (
+            "%Y-%m-%d_%H-%M-%S"
+            if screen_rec_match.group("seconds")
+            else "%Y-%m-%d_%H-%M"
+        )
+
+        return (
+            f"{screen_rec_match.group('prefix')}"
+            f"{corrected_datetime.strftime(timestamp_format)}"
+            f"{screen_rec_match.group('number') or ''}"
+            ".mp4"
+        )
+
+    full_screen_match = re.fullmatch(
+        (
+            r"^(?P<prefix>full_screen_)"
+            r"\d{2}_\d{2}_\d{4}_\d{2}_\d{2}"
+            r"(?P<seconds>_\d{2})?"
+            r"(?P<number>_Number_\d+)?"
+            r"\.mp4$"
+        ),
+        filename,
+        flags=re.IGNORECASE,
+    )
+
+    if full_screen_match is None:
+        return None
+
+    timestamp_format = (
+        "%d_%m_%Y_%H_%M_%S"
+        if full_screen_match.group("seconds")
+        else "%d_%m_%Y_%H_%M"
+    )
+
+    return (
+        f"{full_screen_match.group('prefix')}"
+        f"{corrected_datetime.strftime(timestamp_format)}"
+        f"{full_screen_match.group('number') or ''}"
+        ".mp4"
+    )
 
 
 def build_corrected_filename(
@@ -675,7 +824,10 @@ def build_corrected_filename(
     suffix = remote_path.suffix.lower()
 
     if suffix == ".reff":
-        return build_corrected_reff_filename(corrected_timestamp)
+        return build_corrected_reff_filename(
+            corrected_timestamp,
+            remote_path.name,
+        )
 
     if suffix == ".mp4":
         return build_corrected_video_filename(
