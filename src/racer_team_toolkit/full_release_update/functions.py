@@ -338,10 +338,6 @@ def resolve_missing_apks(
                 apk_folder,
             )
 
-            print_release_update_plan(
-                plan,
-            )
-
         elif choice == "Continue with available APKs":
             return True
 
@@ -384,10 +380,6 @@ def resolve_missing_jar(
             change_jar_file(
                 plan,
                 jar_file,
-            )
-
-            print_release_update_plan(
-                plan,
             )
 
             return True
@@ -547,7 +539,7 @@ def execute_release_update(
 def prepare_release_update(
     connected_devices: list[AndroidDevice],
 ) -> ReleaseUpdatePlan | None:
-    """Select a release folder and prepare the final release update plan."""
+    """Select a release folder and display the final release update plan once."""
 
     release_folders = get_release_folders()
 
