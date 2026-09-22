@@ -82,12 +82,14 @@ def pull_reff_files(
         exist_ok=True,
     )
 
+    successfully_pulled_files: list[str] = []
+
     try:
         for file_number, remote_file in enumerate(
             reff_files,
             start=1,
         ):
-            pull_remote_file(
+            pulled = pull_remote_file(
                 device,
                 remote_file,
                 records_dir,
@@ -96,9 +98,13 @@ def pull_reff_files(
                 (f"REFF: {get_transfer_verb()} {file_number} of {total_reff_files} files"),
             )
 
+            if pulled:
+                successfully_pulled_files.append(remote_file)
+
         return move_record_files(
             records_dir,
             device,
+            successfully_pulled_files,
         )
 
     finally:
@@ -152,12 +158,14 @@ def pull_videos(
         exist_ok=True,
     )
 
+    successfully_pulled_files: list[str] = []
+
     try:
         for file_number, remote_file in enumerate(
             video_files,
             start=1,
         ):
-            pull_remote_file(
+            pulled = pull_remote_file(
                 device,
                 remote_file,
                 videos_dir,
@@ -166,9 +174,13 @@ def pull_videos(
                 (f"Videos: {get_transfer_verb()} {file_number} of {total_video_files} files"),
             )
 
+            if pulled:
+                successfully_pulled_files.append(remote_file)
+
         return move_video_files(
             videos_dir,
             device,
+            successfully_pulled_files,
         )
 
     finally:
@@ -318,13 +330,22 @@ def filter_remote_files_by_size(
 def move_video_files(
     videos_dir: str,
     device: AndroidDevice,
+    remote_files: list[str],
 ) -> int:
-    """Move downloaded videos into the dump directory with device prefixes."""
+    """Finalize downloaded videos and delete remote sources in production."""
 
     copied_count = 0
+    remote_by_filename = {
+        PurePosixPath(remote_file).name: remote_file for remote_file in remote_files
+    }
 
     for root, _, filenames in os.walk(videos_dir):
         for filename in filenames:
+            remote_file = remote_by_filename.get(filename)
+
+            if remote_file is None:
+                continue
+
             source_path = os.path.join(
                 root,
                 filename,
@@ -354,6 +375,16 @@ def move_video_files(
                         ),
                     )
 
+                    if not delete_remote_file(
+                        device,
+                        remote_file,
+                    ):
+                        console.print(
+                            "[yellow]Video copied locally but remote delete failed: "
+                            f"{filename}[/yellow]"
+                        )
+                        continue
+
                 else:
                     os.remove(source_path)
 
@@ -368,13 +399,22 @@ def move_video_files(
 def move_record_files(
     records_dir: str,
     device: AndroidDevice,
+    remote_files: list[str],
 ) -> int:
-    """Move record files into the dump directory with device prefixes."""
+    """Finalize downloaded REFF files and delete remote sources in production."""
 
     copied_count = 0
+    remote_by_filename = {
+        PurePosixPath(remote_file).name: remote_file for remote_file in remote_files
+    }
 
     for root, _, filenames in os.walk(records_dir):
         for filename in filenames:
+            remote_file = remote_by_filename.get(filename)
+
+            if remote_file is None:
+                continue
+
             source_path = os.path.join(
                 root,
                 filename,
@@ -407,6 +447,16 @@ def move_record_files(
                         ),
                     )
 
+                    if not delete_remote_file(
+                        device,
+                        remote_file,
+                    ):
+                        console.print(
+                            "[yellow]REFF copied locally but remote delete failed: "
+                            f"{filename}[/yellow]"
+                        )
+                        continue
+
                 else:
                     os.remove(source_path)
 
@@ -416,6 +466,29 @@ def move_record_files(
                 print(f"[!] Failed to move a REFF file: {error}")
 
     return copied_count
+
+
+def delete_remote_file(
+    device: AndroidDevice,
+    remote_file: str,
+) -> bool:
+    """Delete one remote file after a successful production transfer."""
+
+    result = run_adb_command(
+        [
+            "-s",
+            device.serial,
+            "shell",
+            "rm",
+            "-f",
+            remote_file,
+        ]
+    )
+
+    if result.returncode != 0:
+        return False
+
+    return True
 
 
 def transfer_file(source_path: str, destination_path: str) -> None:
