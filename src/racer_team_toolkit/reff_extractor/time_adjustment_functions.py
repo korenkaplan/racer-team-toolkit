@@ -737,11 +737,7 @@ def build_corrected_reff_filename(
     if match is None:
         return None
 
-    timestamp_format = (
-        "%d_%m_%Y_%H_%M_%S"
-        if match.group("seconds")
-        else "%d_%m_%Y_%H_%M"
-    )
+    timestamp_format = "%d_%m_%Y_%H_%M_%S" if match.group("seconds") else "%d_%m_%Y_%H_%M"
 
     return (
         f"{match.group('prefix')}"
@@ -773,9 +769,7 @@ def build_corrected_video_filename(
 
     if screen_rec_match is not None:
         timestamp_format = (
-            "%Y-%m-%d_%H-%M-%S"
-            if screen_rec_match.group("seconds")
-            else "%Y-%m-%d_%H-%M"
+            "%Y-%m-%d_%H-%M-%S" if screen_rec_match.group("seconds") else "%Y-%m-%d_%H-%M"
         )
 
         return (
@@ -801,9 +795,7 @@ def build_corrected_video_filename(
         return None
 
     timestamp_format = (
-        "%d_%m_%Y_%H_%M_%S"
-        if full_screen_match.group("seconds")
-        else "%d_%m_%Y_%H_%M"
+        "%d_%m_%Y_%H_%M_%S" if full_screen_match.group("seconds") else "%d_%m_%Y_%H_%M"
     )
 
     return (
