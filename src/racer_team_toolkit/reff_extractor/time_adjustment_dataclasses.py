@@ -6,12 +6,16 @@ from racer_team_toolkit.config import AndroidDevice
 
 @dataclass
 class DeviceTimeInfo:
-    """Time comparison information for one Android device."""
+    """Absolute and local-clock comparison information for one Android device."""
 
     device: AndroidDevice
     device_datetime: datetime
     difference_seconds: float
     needs_fix: bool
+    absolute_difference_seconds: float
+    local_difference_seconds: float
+    absolute_time_needs_fix: bool
+    local_time_needs_fix: bool
 
 
 @dataclass
