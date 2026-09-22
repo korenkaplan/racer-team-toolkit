@@ -555,7 +555,8 @@ def print_device_correction_plan(
         console.print("[yellow]Action: correct file mtime and timestamp-based filenames.[/yellow]")
     elif device_info.local_time_needs_fix:
         console.print(
-            "[yellow]Action: keep absolute mtime unchanged and correct timestamp-based filenames.[/yellow]"
+            "[yellow]Action: keep absolute mtime unchanged and correct "
+            "timestamp-based filenames.[/yellow]"
         )
 
     console.print(f"REFF files found: [cyan]{reff_count}[/cyan]")
