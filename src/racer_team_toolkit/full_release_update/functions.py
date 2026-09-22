@@ -552,7 +552,9 @@ def prepare_release_update(
     release_folders = get_release_folders()
 
     if not release_folders:
-        print_error("No release folders containing APK or JAR files were found in Downloads.")
+        print_error(
+            "No release folders containing APK or JAR files were found in Downloads."
+        )
         return None
 
     release_folder = choose_release_folder(
@@ -565,10 +567,8 @@ def prepare_release_update(
     )
 
     console.print()
-    console.print(f"Selected release folder: [bold]{release_folder}[/bold]")
-
-    print_release_update_plan(
-        plan,
+    console.print(
+        f"Selected release folder: [bold]{release_folder}[/bold]"
     )
 
     if not resolve_missing_apks(plan):
@@ -578,7 +578,6 @@ def prepare_release_update(
         return None
 
     console.print()
-    console.print("[bold]Final update plan:[/bold]")
 
     print_release_update_plan(
         plan,
