@@ -120,8 +120,21 @@ class TimeCorrectionWorker(QObject):
                 self.status.emit(f"▶ {device.name}")
                 self.status.emit(f"Wrong device date: {device_info.device_datetime:%d-%m-%Y}")
                 self.status.emit(
-                    f"Time correction: {format_time_difference(device_info.difference_seconds)}"
+                    "Absolute time difference: "
+                    f"{format_time_difference(device_info.absolute_difference_seconds)}"
                 )
+                self.status.emit(
+                    "Local clock difference: "
+                    f"{format_time_difference(device_info.local_difference_seconds)}"
+                )
+
+                if device_info.absolute_time_needs_fix:
+                    self.status.emit("Action: correct file mtime and timestamp-based filenames.")
+                elif device_info.local_time_needs_fix:
+                    self.status.emit(
+                        "Action: keep absolute mtime unchanged and correct "
+                        "timestamp-based filenames."
+                    )
                 self.status.emit("Scanning affected REFF and screen video files...")
 
                 corrections, reff_count, video_count = build_device_file_corrections(device_info)
@@ -361,12 +374,13 @@ class ReffExtractorPage(QWidget):
 
         self.time_table = QTableWidget()
         self.time_table.setObjectName("dataTable")
-        self.time_table.setColumnCount(4)
+        self.time_table.setColumnCount(5)
         self.time_table.setHorizontalHeaderLabels(
             [
                 "Device",
-                "Device Time",
-                "Difference",
+                "Device Local Time",
+                "Absolute Diff",
+                "Local Diff",
                 "Status",
             ]
         )
@@ -532,13 +546,22 @@ class ReffExtractorPage(QWidget):
                 values = (
                     "Unavailable",
                     "-",
+                    "-",
                     "Could not read clock",
                 )
             else:
+                if info.absolute_time_needs_fix:
+                    status = "Clock Needs Fix"
+                elif info.local_time_needs_fix:
+                    status = "Timezone / Local Time Needs Fix"
+                else:
+                    status = "✓ OK"
+
                 values = (
                     info.device_datetime.strftime("%d-%m-%Y %H:%M:%S"),
-                    format_time_difference(info.difference_seconds),
-                    "Needs Fix" if info.needs_fix else "✓ OK",
+                    format_time_difference(info.absolute_difference_seconds),
+                    format_time_difference(info.local_difference_seconds),
+                    status,
                 )
 
             for column, value in enumerate(
