@@ -446,10 +446,10 @@ def move_video_files(
                             "[yellow]Video copied locally but remote delete failed: "
                             f"{filename}[/yellow]"
                         )
-                    _emit_status(
-                        status_callback,
-                        f"⚠ Video copied locally but remote delete failed: {filename}",
-                    )
+                        _emit_status(
+                            status_callback,
+                            f"⚠ Video copied locally but remote delete failed: {filename}",
+                        )
                         continue
 
                 else:
@@ -525,10 +525,10 @@ def move_record_files(
                             "[yellow]REFF copied locally but remote delete failed: "
                             f"{filename}[/yellow]"
                         )
-                    _emit_status(
-                        status_callback,
-                        f"⚠ REFF copied locally but remote delete failed: {filename}",
-                    )
+                        _emit_status(
+                            status_callback,
+                            f"⚠ REFF copied locally but remote delete failed: {filename}",
+                        )
                         continue
 
                 else:
