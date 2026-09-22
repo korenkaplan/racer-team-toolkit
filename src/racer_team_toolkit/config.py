@@ -54,7 +54,8 @@ standard_desktop = home / "Desktop"
 VIDEO_FILE_PREFIX = "VIDEO"
 DESKTOP_PATH = onedrive_desktop if onedrive_desktop.exists() else standard_desktop
 LOCAL_DUMP_DIR = str(DESKTOP_PATH / f"Reff_{today_str}")
-VIDEO_REMOTE_PATH = "/sdcard/Eyesatop-Records/Screen-Videos"
+VIDEO_REMOTE_PATH = "/sdcard/Eyesatop-Records/Videos/Full-Screen"
+REMOTE_REFF_PATH = "/sdcard/Eyesatop-Records/Manual-Records"
 DEVICE_MODEL_RULES = {
     "ISR": ("rcpad",),
     "RACER": ("djircplus",),
@@ -64,28 +65,28 @@ DEVICE_MODEL_RULES = {
 DEVICE_TYPE_CONFIGS = {
     "RACER": DeviceTypeConfig(
         name="Racer Controller",
-        remote_log_path="/sdcard/Records",
+        remote_log_path=REMOTE_REFF_PATH,
         file_prefix="RACER",
         apk_name_pattern="app-dynamic-msdk5-debug*.apk",
         package_name="io.eyesatop.app.dynamic.msdk5",
     ),
     "ISR": DeviceTypeConfig(
         name="ISR Controller",
-        remote_log_path="/sdcard/Records",
+        remote_log_path=REMOTE_REFF_PATH,
         file_prefix="ISR",
         apk_name_pattern="flytogether-autel-msdk-25-debug*.apk",
         package_name="io.eyesatop.apps.flytogetherautelmsdk25",
     ),
     "TABLET": DeviceTypeConfig(
         name="Tablet",
-        remote_log_path="/sdcard/Records",
+        remote_log_path=REMOTE_REFF_PATH,
         file_prefix="TABLET",
         apk_name_pattern="app-dynamic-areal-control-debug*.apk",
         package_name="io.eyesatop.apps.dynamic_areal_control",
     ),
     "BLACK_WIDOW": DeviceTypeConfig(
         name="Black Widow Phone",
-        remote_log_path="/sdcard/Records",
+        remote_log_path=REMOTE_REFF_PATH,
         file_prefix="Black-widow",
         apk_name_pattern="app-flytogether-redcat-blackwidow-debug*.apk",
         package_name="io.eyesatop.apps.dynamic_areal_control",
