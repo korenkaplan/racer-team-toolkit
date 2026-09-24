@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from racer_team_toolkit.imu_recordings.dataclasses import ImuRecording
 from racer_team_toolkit.imu_recordings.functions import (
     choose_imu_recordings,
+    clear_imu_csv_files,
     copy_imu_recordings,
     get_imu_recordings,
     get_local_imu_directory,
@@ -159,9 +160,9 @@ def test_copy_imu_recordings_downloads_selected_files(tmp_path: Path) -> None:
     first_remote, first_local = sftp.get.call_args_list[0].args[:2]
     second_remote, second_local = sftp.get.call_args_list[1].args[:2]
 
-    assert first_remote == "/home/pod/utils/imuRecord/imu_one.csv"
+    assert first_remote == "/home/pod/imuRecord/imu_one.csv"
     assert first_local == str(tmp_path / "imu_one.csv")
-    assert second_remote == "/home/pod/utils/imuRecord/imu_two.csv"
+    assert second_remote == "/home/pod/imuRecord/imu_two.csv"
     assert second_local == str(tmp_path / "imu_two.csv")
 
 
@@ -201,3 +202,49 @@ def test_copy_imu_recordings_keeps_successful_files_when_one_fails(
     assert copied == [
         tmp_path / "imu_ok.csv",
     ]
+
+
+def test_clear_imu_csv_files_deletes_only_csv_files() -> None:
+    """Cleanup removes CSV files and leaves non-CSV files untouched."""
+
+    sftp = MagicMock()
+    sftp.listdir_attr.return_value = [
+        SimpleNamespace(filename="imu_one.csv"),
+        SimpleNamespace(filename="imu_two.CSV"),
+        SimpleNamespace(filename="notes.txt"),
+    ]
+
+    ssh = MagicMock()
+    ssh.open_sftp.return_value = make_sftp_context(sftp)
+
+    deleted_count, failures = clear_imu_csv_files(ssh)
+
+    assert deleted_count == 2
+    assert failures == []
+    assert [call.args[0] for call in sftp.remove.call_args_list] == [
+        "/home/pod/imuRecord/imu_one.csv",
+        "/home/pod/imuRecord/imu_two.CSV",
+    ]
+
+
+def test_clear_imu_csv_files_keeps_going_when_one_delete_fails() -> None:
+    """Cleanup reports a failed delete while continuing with the other CSV files."""
+
+    sftp = MagicMock()
+    sftp.listdir_attr.return_value = [
+        SimpleNamespace(filename="imu_ok.csv"),
+        SimpleNamespace(filename="imu_fail.csv"),
+    ]
+    sftp.remove.side_effect = [
+        None,
+        OSError("delete failed"),
+    ]
+
+    ssh = MagicMock()
+    ssh.open_sftp.return_value = make_sftp_context(sftp)
+
+    deleted_count, failures = clear_imu_csv_files(ssh)
+
+    assert deleted_count == 1
+    assert len(failures) == 1
+    assert failures[0].startswith("imu_fail.csv:")
