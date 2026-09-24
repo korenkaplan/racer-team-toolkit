@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QMessageBox,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
 from racer_team_toolkit.imu_recordings.config import IMU_REMOTE_DIRECTORY
 from racer_team_toolkit.imu_recordings.dataclasses import ImuRecording
 from racer_team_toolkit.imu_recordings.functions import (
+    clear_imu_csv_files,
     get_imu_recordings,
     get_local_imu_directory,
 )
@@ -170,6 +172,48 @@ class ImuDownloadWorker(QObject):
                 ssh.close()
 
 
+class ImuClearWorker(QObject):
+    """Delete all remote IMU CSV files."""
+
+    status = Signal(str)
+    finished = Signal(int, object)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        """Connect to the server and clear all IMU CSV files."""
+
+        ssh = None
+
+        try:
+            self.status.emit("Checking IMU server connection...")
+
+            if not is_ssh_server_reachable():
+                self.failed.emit("IMU server is not reachable.")
+                return
+
+            ssh = connect_to_server()
+
+            if ssh is None:
+                self.failed.emit("Could not connect to IMU server.")
+                return
+
+            self.status.emit("Deleting remote IMU CSV files...")
+
+            deleted_count, failures = clear_imu_csv_files(ssh)
+
+            self.finished.emit(
+                deleted_count,
+                failures,
+            )
+
+        except Exception as error:
+            self.failed.emit(str(error))
+
+        finally:
+            if ssh is not None:
+                ssh.close()
+
+
 class ImuRecordingsPage(QWidget):
     """Desktop interface for extracting IMU recordings."""
 
@@ -183,6 +227,8 @@ class ImuRecordingsPage(QWidget):
         self.load_worker: ImuLoadWorker | None = None
         self.download_thread: QThread | None = None
         self.download_worker: ImuDownloadWorker | None = None
+        self.clear_thread: QThread | None = None
+        self.clear_worker: ImuClearWorker | None = None
 
         self.destination = get_local_imu_directory()
         self._initial_load_done = False
@@ -257,14 +303,19 @@ class ImuRecordingsPage(QWidget):
         select_all_button.setObjectName("secondaryButton")
         select_all_button.clicked.connect(lambda: self._set_all_checked(True))
 
-        clear_button = QPushButton("Clear")
+        clear_button = QPushButton("Clear Selection")
         clear_button.setObjectName("secondaryButton")
         clear_button.clicked.connect(lambda: self._set_all_checked(False))
+
+        self.clear_csv_button = QPushButton("Clear All CSV Files")
+        self.clear_csv_button.setObjectName("secondaryButton")
+        self.clear_csv_button.clicked.connect(self.clear_all_csv_files)
 
         selection_buttons.addWidget(self.refresh_button)
         selection_buttons.addWidget(select_all_button)
         selection_buttons.addWidget(clear_button)
         selection_buttons.addStretch()
+        selection_buttons.addWidget(self.clear_csv_button)
 
         selection_layout.addLayout(header)
         selection_layout.addWidget(scroll, stretch=1)
@@ -427,6 +478,75 @@ class ImuRecordingsPage(QWidget):
         busy = self.download_thread is not None and self.download_thread.isRunning()
 
         self.download_button.setEnabled(selected and not busy)
+
+    def clear_all_csv_files(self) -> None:
+        """Confirm and delete all remote IMU CSV files."""
+
+        if self.clear_thread is not None and self.clear_thread.isRunning():
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Clear All IMU CSV Files",
+            (
+                f"Delete all CSV files from {IMU_REMOTE_DIRECTORY}?\n\n"
+                "This cannot be undone."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self.clear_csv_button.setEnabled(False)
+        self.refresh_button.setEnabled(False)
+        self.download_button.setEnabled(False)
+
+        self.clear_thread = QThread()
+        self.clear_worker = ImuClearWorker()
+        self.clear_worker.moveToThread(self.clear_thread)
+
+        self.clear_thread.started.connect(self.clear_worker.run)
+        self.clear_worker.status.connect(self._append_log)
+        self.clear_worker.finished.connect(self._clear_finished)
+        self.clear_worker.failed.connect(self._clear_failed)
+        self.clear_worker.finished.connect(self.clear_thread.quit)
+        self.clear_worker.failed.connect(self.clear_thread.quit)
+        self.clear_thread.finished.connect(self._cleanup_clear_thread)
+
+        self.clear_thread.start()
+
+    def _clear_finished(
+        self,
+        deleted_count: int,
+        failures: list[str],
+    ) -> None:
+        """Display cleanup results and refresh the recording list."""
+
+        self._append_log("")
+        self._append_log("IMU Cleanup Results")
+        self._append_log(f"Deleted: {deleted_count}")
+        self._append_log(f"Failed:  {len(failures)}")
+
+        for failure in failures:
+            self._append_log(f"✗ {failure}")
+
+        self.load_recordings()
+
+    def _clear_failed(self, message: str) -> None:
+        """Display an unexpected cleanup failure."""
+
+        self._append_log(f"✗ IMU cleanup failed: {message}")
+
+    def _cleanup_clear_thread(self) -> None:
+        """Release IMU cleanup worker references."""
+
+        self.clear_worker = None
+        self.clear_thread = None
+        self.clear_csv_button.setEnabled(True)
+        self.refresh_button.setEnabled(True)
+        self._update_download_button()
 
     def download_selected(self) -> None:
         """Download all checked recordings."""
