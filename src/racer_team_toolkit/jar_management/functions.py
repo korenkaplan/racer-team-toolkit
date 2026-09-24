@@ -15,6 +15,7 @@ from rich.status import Status
 
 from racer_team_toolkit.jar_management.config import (
     CAMERA_MODE_COMMANDS,
+    CAMERA_MODE_MARKERS,
     CAMERA_MODE_RTSP,
     CAMERA_MODE_SHARPEYE,
     JAR_FILENAME,
@@ -125,7 +126,7 @@ def build_camera_mode_script(
     script_text: str,
     camera_mode: str,
 ) -> str:
-    """Return run_java.sh with exactly one supported camera mode enabled."""
+    """Return run_java.sh with the selected supported camera mode enabled."""
 
     if camera_mode not in CAMERA_MODE_COMMANDS:
         raise ValueError(f"Unsupported camera mode: {camera_mode}")
@@ -135,6 +136,8 @@ def build_camera_mode_script(
     }
     found_modes: set[str] = set()
     updated_lines: list[str] = []
+    insertion_index: int | None = None
+    insertion_indent = "    "
 
     for line in script_text.splitlines(keepends=True):
         newline = "\n" if line.endswith("\n") else ""
@@ -144,13 +147,21 @@ def build_camera_mode_script(
         candidate = stripped[1:].lstrip() if stripped.startswith("#") else stripped
 
         matched_mode = next(
-            (mode for mode, camera_line in camera_lines.items() if candidate == camera_line),
+            (
+                mode
+                for mode, marker in CAMERA_MODE_MARKERS.items()
+                if candidate.startswith('RUN_CMD="$RUN_CMD ') and marker in candidate
+            ),
             None,
         )
 
         if matched_mode is None:
             updated_lines.append(line)
             continue
+
+        if insertion_index is None:
+            insertion_index = len(updated_lines)
+            insertion_indent = indentation
 
         found_modes.add(matched_mode)
         selected_line = camera_lines[matched_mode]
@@ -160,11 +171,25 @@ def build_camera_mode_script(
 
         updated_lines.append(f"{indentation}{selected_line}{newline}")
 
-    missing_modes = set(camera_lines) - found_modes
+    missing_modes = [mode for mode in camera_lines if mode not in found_modes]
 
     if missing_modes:
-        missing_text = ", ".join(sorted(missing_modes))
-        raise ValueError(f"Camera mode line(s) not found in run_java.sh: {missing_text}")
+        if insertion_index is None:
+            raise ValueError("No supported camera source lines were found in run_java.sh.")
+
+        insert_at = insertion_index
+
+        for mode in missing_modes:
+            selected_line = camera_lines[mode]
+
+            if mode != camera_mode:
+                selected_line = f"#{selected_line}"
+
+            updated_lines.insert(
+                insert_at,
+                f"{insertion_indent}{selected_line}\n",
+            )
+            insert_at += 1
 
     return "".join(updated_lines)
 
@@ -172,11 +197,17 @@ def build_camera_mode_script(
 def get_camera_mode_from_script(script_text: str) -> str | None:
     """Return the currently active supported camera mode."""
 
-    for mode, arguments in CAMERA_MODE_COMMANDS.items():
-        active_line = f'RUN_CMD="$RUN_CMD {arguments}"'
+    for line in script_text.splitlines():
+        stripped = line.strip()
 
-        for line in script_text.splitlines():
-            if line.strip() == active_line:
+        if stripped.startswith("#"):
+            continue
+
+        if not stripped.startswith('RUN_CMD="$RUN_CMD '):
+            continue
+
+        for mode, marker in CAMERA_MODE_MARKERS.items():
+            if marker in stripped:
                 return mode
 
     return None
