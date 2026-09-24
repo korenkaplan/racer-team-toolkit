@@ -12,6 +12,11 @@ RUN_JAVA_SCRIPT_PATH = "/home/pod/utils/run_java.sh"
 CAMERA_MODE_SHARPEYE = "SharpEye Mode"
 CAMERA_MODE_RTSP = "RTSP Mode"
 
+CAMERA_MODE_MARKERS = {
+    CAMERA_MODE_SHARPEYE: "-camera racer-airlord-rtsp-tcp",
+    CAMERA_MODE_RTSP: "-camera lumenier-rtsp",
+}
+
 CAMERA_MODE_COMMANDS = {
     CAMERA_MODE_SHARPEYE: (
         "-model Lumenier -sdkType betaflight "
