@@ -257,7 +257,6 @@ def set_camera_mode(
         return False, str(error)
 
 
-
 def get_current_camera_mode() -> str | None:
     """Return the currently configured camera mode from run_java.sh."""
 
