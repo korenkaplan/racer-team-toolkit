@@ -488,10 +488,7 @@ class ImuRecordingsPage(QWidget):
         answer = QMessageBox.question(
             self,
             "Clear All IMU CSV Files",
-            (
-                f"Delete all CSV files from {IMU_REMOTE_DIRECTORY}?\n\n"
-                "This cannot be undone."
-            ),
+            (f"Delete all CSV files from {IMU_REMOTE_DIRECTORY}?\n\nThis cannot be undone."),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
