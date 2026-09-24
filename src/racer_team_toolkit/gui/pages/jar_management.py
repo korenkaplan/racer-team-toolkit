@@ -15,8 +15,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from racer_team_toolkit.jar_management.config import (
+    CAMERA_MODE_RTSP,
+    CAMERA_MODE_SHARPEYE,
+)
 from racer_team_toolkit.jar_management.functions import (
     run_java_script,
+    set_camera_mode,
     stop_screen_sessions,
     upload_jar_file,
     verify_groundlord_started,
@@ -40,10 +45,12 @@ class JarOperationWorker(QObject):
         self,
         operation: str,
         jar_path: Path | None = None,
+        camera_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.operation = operation
         self.jar_path = jar_path
+        self.camera_mode = camera_mode
 
     def run(self) -> None:
         """Run the selected JAR operation."""
@@ -73,6 +80,31 @@ class JarOperationWorker(QObject):
                 return
 
             self.status.emit("✓ Connected to server")
+
+            if self.operation == "camera":
+                if self.camera_mode is None:
+                    self.finished.emit(
+                        False,
+                        "No camera mode was selected.",
+                    )
+                    return
+
+                self.status.emit(f"Setting camera source to {self.camera_mode}...")
+
+                success, message = set_camera_mode(
+                    ssh,
+                    self.camera_mode,
+                )
+
+                if not success:
+                    self.finished.emit(
+                        False,
+                        f"Failed to update camera source: {message}",
+                    )
+                    return
+
+                self.status.emit(f"✓ {message}")
+
             self.status.emit("Stopping running JAR processes...")
 
             if not stop_screen_sessions(ssh):
@@ -146,6 +178,11 @@ class JarOperationWorker(QObject):
                     True,
                     "Racer Groundlord JAR uploaded and restarted successfully.",
                 )
+            elif self.operation == "camera":
+                self.finished.emit(
+                    True,
+                    f"Camera source changed to {self.camera_mode} and Racer Groundlord restarted.",
+                )
             else:
                 self.finished.emit(
                     True,
@@ -197,9 +234,11 @@ class JarManagementPage(QWidget):
 
         restart_card = self._build_restart_card()
         upload_card = self._build_upload_card()
+        camera_card = self._build_camera_card()
 
         actions.addWidget(restart_card)
         actions.addWidget(upload_card)
+        actions.addWidget(camera_card)
 
         root.addLayout(actions)
 
@@ -312,6 +351,53 @@ class JarManagementPage(QWidget):
 
         return card
 
+    def _build_camera_card(self) -> QFrame:
+        """Build the camera source selection card."""
+
+        card = QFrame()
+        card.setObjectName("actionCard")
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(10)
+
+        title = QLabel("Camera Source")
+        title.setObjectName("sectionTitle")
+
+        description = QLabel(
+            "Choose the Racer camera startup mode. "
+            "The run_java.sh configuration will be updated and Racer Groundlord restarted."
+        )
+        description.setObjectName("mutedText")
+        description.setWordWrap(True)
+
+        self.sharpeye_button = QPushButton(CAMERA_MODE_SHARPEYE)
+        self.sharpeye_button.setObjectName("primaryButton")
+        self.sharpeye_button.clicked.connect(
+            lambda: self._start_operation(
+                "camera",
+                CAMERA_MODE_SHARPEYE,
+            )
+        )
+
+        self.rtsp_button = QPushButton(CAMERA_MODE_RTSP)
+        self.rtsp_button.setObjectName("secondaryButton")
+        self.rtsp_button.clicked.connect(
+            lambda: self._start_operation(
+                "camera",
+                CAMERA_MODE_RTSP,
+            )
+        )
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addStretch()
+        layout.addWidget(self.sharpeye_button)
+        layout.addWidget(self.rtsp_button)
+
+        return card
+
+
     def _choose_jar(self) -> None:
         """Choose racer-groundlord.jar from the local computer."""
 
@@ -343,7 +429,11 @@ class JarManagementPage(QWidget):
         self.jar_path_label.style().polish(self.jar_path_label)
         self.upload_button.setEnabled(True)
 
-    def _start_operation(self, operation: str) -> None:
+    def _start_operation(
+        self,
+        operation: str,
+        camera_mode: str | None = None,
+    ) -> None:
         """Start a JAR operation in a worker thread."""
 
         if self.thread is not None and self.thread.isRunning():
@@ -352,22 +442,28 @@ class JarManagementPage(QWidget):
         jar_path = self.selected_jar if operation == "upload" else None
 
         self.log.clear()
-        self._append_log(
-            "Starting JAR upload..."
-            if operation == "upload"
-            else "Starting Racer Groundlord restart..."
-        )
+        if operation == "upload":
+            start_message = "Starting JAR upload..."
+        elif operation == "camera":
+            start_message = f"Changing camera source to {camera_mode}..."
+        else:
+            start_message = "Starting Racer Groundlord restart..."
+
+        self._append_log(start_message)
 
         self.operation_status.setText("Running")
         self.progress.setRange(0, 0)
 
         self.restart_button.setEnabled(False)
         self.upload_button.setEnabled(False)
+        self.sharpeye_button.setEnabled(False)
+        self.rtsp_button.setEnabled(False)
 
         self.thread = QThread()
         self.worker = JarOperationWorker(
             operation,
             jar_path,
+            camera_mode,
         )
         self.worker.moveToThread(self.thread)
 
@@ -422,3 +518,5 @@ class JarManagementPage(QWidget):
 
         self.restart_button.setEnabled(True)
         self.upload_button.setEnabled(self.selected_jar is not None)
+        self.sharpeye_button.setEnabled(True)
+        self.rtsp_button.setEnabled(True)
