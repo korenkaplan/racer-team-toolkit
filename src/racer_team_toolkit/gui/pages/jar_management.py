@@ -397,7 +397,6 @@ class JarManagementPage(QWidget):
 
         return card
 
-
     def _choose_jar(self) -> None:
         """Choose racer-groundlord.jar from the local computer."""
 
