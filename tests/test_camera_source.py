@@ -76,3 +76,26 @@ def test_switch_preserves_other_camera_lines() -> None:
 
     assert f"    #{ATALEF_LINE}" in updated
     assert f"    #{SKYDROID_LINE}" in updated
+
+
+def test_switch_adds_missing_supported_mode() -> None:
+    """A missing supported camera line is restored next to the existing one."""
+
+    script_without_sharpeye = "\n".join(
+        [
+            "#!/bin/bash",
+            'if [[ "$JAR_BASENAME" == "racer-groundlord.jar" ]]; then',
+            f"    {RTSP_LINE}",
+            "fi",
+            "",
+        ]
+    )
+
+    updated = build_camera_mode_script(
+        script_without_sharpeye,
+        CAMERA_MODE_SHARPEYE,
+    )
+
+    assert f"    {SHARPEYE_LINE}" in updated
+    assert f"    #{RTSP_LINE}" in updated
+    assert get_camera_mode_from_script(updated) == CAMERA_MODE_SHARPEYE
