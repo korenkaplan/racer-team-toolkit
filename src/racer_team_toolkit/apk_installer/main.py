@@ -21,7 +21,6 @@ from racer_team_toolkit.ui.functions import (
     console,
     pause,
     print_error,
-    print_header,
     select_menu,
     select_menu_tuple,
 )
@@ -30,7 +29,6 @@ from racer_team_toolkit.ui.functions import (
 def main() -> None:
     """Run folder selection, approval, installation, and result reporting."""
 
-    print_header("APK Installer!")
     connected_devices = get_connected_android_devices()
 
     if not connected_devices:

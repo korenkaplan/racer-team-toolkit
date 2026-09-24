@@ -11,15 +11,12 @@ from racer_team_toolkit.ui.functions import (
     console,
     pause,
     print_error,
-    print_header,
     select_menu,
 )
 
 
 def main() -> None:
     """Run the full release update flow."""
-
-    print_header("Full Release Update")
 
     connected_devices = get_connected_android_devices()
 

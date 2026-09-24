@@ -19,8 +19,6 @@ QUICK_RESET_CHOICES = [
 def main() -> None:
     """Display the Quick Reset menu."""
 
-    print_header(QUICK_RESET_HEADER)
-
     user_choice = select_menu(
         "Select an option:",
         QUICK_RESET_CHOICES,

@@ -2,7 +2,6 @@
 
 from racer_team_toolkit.config import (
     REFF_EXTRACTOR_CHOICES,
-    REFF_EXTRACTOR_HEADER,
 )
 from racer_team_toolkit.reff_extractor.extraction import (
     extract_reff,
@@ -16,7 +15,6 @@ from racer_team_toolkit.ui.functions import (
 
 
 def main() -> None:
-    print_header(REFF_EXTRACTOR_HEADER)
 
     user_choice = select_menu(
         "Select an option:",

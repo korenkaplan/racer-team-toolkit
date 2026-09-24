@@ -49,10 +49,6 @@ def main() -> None:
     """Display the Ronen Operations menu and run the selected operation."""
 
     while True:
-        print_header(RONEN_OPERATIONS_HEADER)
-        show_camera_mode_indicator()
-        console.print()
-
         user_choice = select_menu(
             "Select an option:",
             RONEN_OPERATIONS_CHOICES,
@@ -81,7 +77,7 @@ def main() -> None:
 
         elif user_choice == RONEN_OPERATIONS_CHOICES[3]:
             print_header(RONEN_OPERATIONS_CHOICES[3])
-
+            show_camera_mode_indicator()
             camera_choice = select_menu(
                 "Select camera source:",
                 [
