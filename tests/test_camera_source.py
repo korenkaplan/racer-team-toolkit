@@ -11,7 +11,7 @@ from racer_team_toolkit.jar_management.functions import (
 
 SHARPEYE_LINE = (
     'RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight '
-    '-camera racer-airlord-rtsp-tcp -imuRecord imuRecord '
+    "-camera racer-airlord-rtsp-tcp -imuRecord imuRecord "
     '-targeting SHARPEYES -airlordHost 192.168.144.8 -airlordPort 5001"'
 )
 RTSP_LINE = (
