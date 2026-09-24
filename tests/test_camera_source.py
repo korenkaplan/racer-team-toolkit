@@ -9,15 +9,30 @@ from racer_team_toolkit.jar_management.functions import (
     get_camera_mode_from_script,
 )
 
+SHARPEYE_LINE = (
+    'RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight '
+    '-camera racer-airlord-rtsp-tcp -imuRecord imuRecord '
+    '-targeting SHARPEYES -airlordHost 192.168.144.8 -airlordPort 5001"'
+)
+RTSP_LINE = (
+    'RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight '
+    '-camera lumenier-rtsp -imuRecord imuRecord"'
+)
+ATALEF_LINE = 'RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight -camera atalef"'
+SKYDROID_LINE = 'RUN_CMD="$RUN_CMD -model EDI_READY -sdkType MAVLINK -camera skydroid"'
 
-BASE_SCRIPT = """#!/bin/bash
-if [[ "$JAR_BASENAME" == "racer-groundlord.jar" ]]; then
-    #RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight -camera atalef"
-    #RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight -camera racer-airlord-rtsp-tcp -imuRecord imuRecord -targeting SHARPEYES -airlordHost 192.168.144.8 -airlordPort 5001"
-    RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight -camera lumenier-rtsp -imuRecord imuRecord"
-    #RUN_CMD="$RUN_CMD -model EDI_READY -sdkType MAVLINK -camera skydroid"
-fi
-"""
+BASE_SCRIPT = "\n".join(
+    [
+        "#!/bin/bash",
+        'if [[ "$JAR_BASENAME" == "racer-groundlord.jar" ]]; then',
+        f"    #{ATALEF_LINE}",
+        f"    #{SHARPEYE_LINE}",
+        f"    {RTSP_LINE}",
+        f"    #{SKYDROID_LINE}",
+        "fi",
+        "",
+    ]
+)
 
 
 def test_switch_to_sharpeye_mode() -> None:
@@ -28,17 +43,8 @@ def test_switch_to_sharpeye_mode() -> None:
         CAMERA_MODE_SHARPEYE,
     )
 
-    assert (
-        '    RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight '
-        '-camera racer-airlord-rtsp-tcp -imuRecord imuRecord '
-        '-targeting SHARPEYES -airlordHost 192.168.144.8 -airlordPort 5001"'
-        in updated
-    )
-    assert (
-        '    #RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight '
-        '-camera lumenier-rtsp -imuRecord imuRecord"'
-        in updated
-    )
+    assert f"    {SHARPEYE_LINE}" in updated
+    assert f"    #{RTSP_LINE}" in updated
     assert get_camera_mode_from_script(updated) == CAMERA_MODE_SHARPEYE
 
 
@@ -55,17 +61,8 @@ def test_switch_to_rtsp_mode() -> None:
         CAMERA_MODE_RTSP,
     )
 
-    assert (
-        '    #RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight '
-        '-camera racer-airlord-rtsp-tcp -imuRecord imuRecord '
-        '-targeting SHARPEYES -airlordHost 192.168.144.8 -airlordPort 5001"'
-        in updated
-    )
-    assert (
-        '    RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight '
-        '-camera lumenier-rtsp -imuRecord imuRecord"'
-        in updated
-    )
+    assert f"    #{SHARPEYE_LINE}" in updated
+    assert f"    {RTSP_LINE}" in updated
     assert get_camera_mode_from_script(updated) == CAMERA_MODE_RTSP
 
 
@@ -77,11 +74,5 @@ def test_switch_preserves_other_camera_lines() -> None:
         CAMERA_MODE_SHARPEYE,
     )
 
-    assert (
-        '    #RUN_CMD="$RUN_CMD -model Lumenier -sdkType betaflight -camera atalef"'
-        in updated
-    )
-    assert (
-        '    #RUN_CMD="$RUN_CMD -model EDI_READY -sdkType MAVLINK -camera skydroid"'
-        in updated
-    )
+    assert f"    #{ATALEF_LINE}" in updated
+    assert f"    #{SKYDROID_LINE}" in updated
