@@ -257,6 +257,29 @@ def set_camera_mode(
         return False, str(error)
 
 
+
+def get_current_camera_mode() -> str | None:
+    """Return the currently configured camera mode from run_java.sh."""
+
+    if not is_ssh_server_reachable():
+        return None
+
+    ssh = connect_to_server()
+
+    if ssh is None:
+        return None
+
+    try:
+        script_text = read_run_java_script(ssh)
+        return get_camera_mode_from_script(script_text)
+
+    except (OSError, paramiko.SSHException, UnicodeDecodeError):
+        return None
+
+    finally:
+        ssh.close()
+
+
 def change_camera_mode(
     camera_mode: str,
 ) -> bool:
