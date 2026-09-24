@@ -131,8 +131,7 @@ def build_camera_mode_script(
         raise ValueError(f"Unsupported camera mode: {camera_mode}")
 
     camera_lines = {
-        mode: f'RUN_CMD="$RUN_CMD {arguments}"'
-        for mode, arguments in CAMERA_MODE_COMMANDS.items()
+        mode: f'RUN_CMD="$RUN_CMD {arguments}"' for mode, arguments in CAMERA_MODE_COMMANDS.items()
     }
     found_modes: set[str] = set()
     updated_lines: list[str] = []
@@ -145,11 +144,7 @@ def build_camera_mode_script(
         candidate = stripped[1:].lstrip() if stripped.startswith("#") else stripped
 
         matched_mode = next(
-            (
-                mode
-                for mode, camera_line in camera_lines.items()
-                if candidate == camera_line
-            ),
+            (mode for mode, camera_line in camera_lines.items() if candidate == camera_line),
             None,
         )
 
