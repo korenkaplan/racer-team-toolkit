@@ -22,8 +22,6 @@ CAMERA_MODE_COMMANDS = {
         "-airlordPort 5001"
     ),
     CAMERA_MODE_RTSP: (
-        "-model Lumenier -sdkType betaflight "
-        "-camera lumenier-rtsp "
-        "-imuRecord imuRecord"
+        "-model Lumenier -sdkType betaflight -camera lumenier-rtsp -imuRecord imuRecord"
     ),
 }
