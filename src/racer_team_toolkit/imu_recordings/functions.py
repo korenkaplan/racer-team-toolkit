@@ -109,6 +109,31 @@ def copy_imu_recordings(
     return copied_files
 
 
+def clear_imu_csv_files(
+    ssh: paramiko.SSHClient,
+) -> tuple[int, list[str]]:
+    """Delete all CSV files directly inside the remote IMU recordings directory."""
+
+    deleted_count = 0
+    failures: list[str] = []
+
+    with ssh.open_sftp() as sftp:
+        for entry in sftp.listdir_attr(IMU_REMOTE_DIRECTORY):
+            if not entry.filename.lower().endswith(IMU_FILE_SUFFIX):
+                continue
+
+            remote_path = f"{IMU_REMOTE_DIRECTORY}/{entry.filename}"
+
+            try:
+                sftp.remove(remote_path)
+                deleted_count += 1
+
+            except OSError as error:
+                failures.append(f"{entry.filename}: {error}")
+
+    return deleted_count, failures
+
+
 def get_local_imu_directory() -> Path:
     """Return the local folder used for IMU recordings."""
 
