@@ -113,16 +113,16 @@ def test_choose_imu_recordings_returns_empty_when_nothing_selected() -> None:
     assert selected == []
 
 
-def test_get_local_imu_directory_uses_downloads(tmp_path: Path) -> None:
-    """The local destination is the IMU Recordings folder under Downloads."""
+def test_get_local_imu_directory_uses_desktop(tmp_path: Path) -> None:
+    """The local destination is the IMU Recordings folder on the desktop."""
 
     with patch(
-        "racer_team_toolkit.imu_recordings.functions.Path.home",
-        return_value=tmp_path,
+        "racer_team_toolkit.imu_recordings.functions.DESKTOP_PATH",
+        tmp_path,
     ):
         destination = get_local_imu_directory()
 
-    assert destination == tmp_path / "Downloads" / "IMU Recordings"
+    assert destination == tmp_path / "IMU Recordings"
 
 
 def test_copy_imu_recordings_downloads_selected_files(tmp_path: Path) -> None:
