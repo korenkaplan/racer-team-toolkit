@@ -12,6 +12,7 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 
+from racer_team_toolkit.config import DESKTOP_PATH
 from racer_team_toolkit.imu_recordings.config import (
     IMU_FILE_PREFIX,
     IMU_FILE_SUFFIX,
@@ -135,9 +136,9 @@ def clear_imu_csv_files(
 
 
 def get_local_imu_directory() -> Path:
-    """Return the local folder used for IMU recordings."""
+    """Return the IMU Recordings folder on the desktop."""
 
-    return Path.home() / "Downloads" / "IMU Recordings"
+    return Path(DESKTOP_PATH) / "IMU Recordings"
 
 
 def choose_imu_recordings(
