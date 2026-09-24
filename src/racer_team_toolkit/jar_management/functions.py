@@ -15,8 +15,12 @@ from rich.progress import (
 from rich.status import Status
 
 from racer_team_toolkit.jar_management.config import (
+    CAMERA_MODE_COMMANDS,
+    CAMERA_MODE_RTSP,
+    CAMERA_MODE_SHARPEYE,
     JAR_FILENAME,
     REMOTE_JAR_DIRECTORY,
+    RUN_JAVA_SCRIPT_PATH,
 )
 from racer_team_toolkit.ssh.config import (
     SSH_HOST,
@@ -118,6 +122,185 @@ def verify_groundlord_started(
         return False
 
     return "racer-groundlord.jar" in output
+
+
+def build_camera_mode_script(
+    script_text: str,
+    camera_mode: str,
+) -> str:
+    """Return run_java.sh with exactly one supported camera mode enabled."""
+
+    if camera_mode not in CAMERA_MODE_COMMANDS:
+        raise ValueError(f"Unsupported camera mode: {camera_mode}")
+
+    camera_lines = {
+        mode: f'RUN_CMD="$RUN_CMD {arguments}"'
+        for mode, arguments in CAMERA_MODE_COMMANDS.items()
+    }
+    found_modes: set[str] = set()
+    updated_lines: list[str] = []
+
+    for line in script_text.splitlines(keepends=True):
+        newline = "\n" if line.endswith("\n") else ""
+        content = line[:-1] if newline else line
+        indentation = content[: len(content) - len(content.lstrip())]
+        stripped = content.lstrip()
+        candidate = stripped[1:].lstrip() if stripped.startswith("#") else stripped
+
+        matched_mode = next(
+            (
+                mode
+                for mode, camera_line in camera_lines.items()
+                if candidate == camera_line
+            ),
+            None,
+        )
+
+        if matched_mode is None:
+            updated_lines.append(line)
+            continue
+
+        found_modes.add(matched_mode)
+        selected_line = camera_lines[matched_mode]
+
+        if matched_mode != camera_mode:
+            selected_line = f"#{selected_line}"
+
+        updated_lines.append(f"{indentation}{selected_line}{newline}")
+
+    missing_modes = set(camera_lines) - found_modes
+
+    if missing_modes:
+        missing_text = ", ".join(sorted(missing_modes))
+        raise ValueError(f"Camera mode line(s) not found in run_java.sh: {missing_text}")
+
+    return "".join(updated_lines)
+
+
+def get_camera_mode_from_script(script_text: str) -> str | None:
+    """Return the currently active supported camera mode."""
+
+    for mode, arguments in CAMERA_MODE_COMMANDS.items():
+        active_line = f'RUN_CMD="$RUN_CMD {arguments}"'
+
+        for line in script_text.splitlines():
+            if line.strip() == active_line:
+                return mode
+
+    return None
+
+
+def read_run_java_script(
+    ssh: paramiko.SSHClient,
+) -> str:
+    """Read the remote run_java.sh script."""
+
+    with ssh.open_sftp() as sftp:
+        with sftp.open(RUN_JAVA_SCRIPT_PATH, "r") as remote_file:
+            content = remote_file.read()
+
+    if isinstance(content, bytes):
+        return content.decode("utf-8")
+
+    return content
+
+
+def set_camera_mode(
+    ssh: paramiko.SSHClient,
+    camera_mode: str,
+) -> tuple[bool, str]:
+    """Enable one supported camera mode in run_java.sh."""
+
+    try:
+        current_script = read_run_java_script(ssh)
+        updated_script = build_camera_mode_script(
+            current_script,
+            camera_mode,
+        )
+
+        if updated_script == current_script:
+            return True, f"{camera_mode} is already active."
+
+        with ssh.open_sftp() as sftp:
+            with sftp.open(RUN_JAVA_SCRIPT_PATH, "w") as remote_file:
+                remote_file.write(updated_script)
+
+        return True, f"Camera source updated to {camera_mode}."
+
+    except (OSError, paramiko.SSHException, UnicodeDecodeError, ValueError) as error:
+        return False, str(error)
+
+
+def change_camera_mode(
+    camera_mode: str,
+) -> bool:
+    """Update the camera mode and restart Racer Groundlord."""
+
+    if camera_mode not in (CAMERA_MODE_SHARPEYE, CAMERA_MODE_RTSP):
+        console.print(f"[red]✗[/red] Unsupported camera mode: {camera_mode}")
+        return False
+
+    with Status(
+        "Checking server connection...",
+        console=console,
+        spinner="dots",
+    ) as status:
+        if not is_ssh_server_reachable():
+            console.print(f"[red]✗[/red] Server is not reachable at {SSH_HOST}:{SSH_PORT}.")
+            return False
+
+        console.print("[green]✓[/green] Server reachable")
+        status.update("Connecting to server...")
+
+        ssh = connect_to_server()
+
+        if ssh is None:
+            return False
+
+        console.print("[green]✓[/green] Connected to server")
+
+        try:
+            status.update(f"Setting camera source to {camera_mode}...")
+
+            success, message = set_camera_mode(
+                ssh,
+                camera_mode,
+            )
+
+            if not success:
+                console.print(f"[red]✗[/red] Failed to update camera source: {message}")
+                return False
+
+            console.print(f"[green]✓[/green] {message}")
+
+            status.update("Stopping running JAR processes...")
+
+            if not stop_screen_sessions(ssh):
+                return False
+
+            if not verify_screen_stopped(ssh):
+                return False
+
+            console.print("[green]✓[/green] Existing processes stopped")
+            status.update("Starting Java processes...")
+
+            success, _ = run_java_script(ssh)
+
+            if not success:
+                return False
+
+            console.print("[green]✓[/green] Java startup command completed")
+            status.update("Verifying Racer Groundlord...")
+
+            if not verify_groundlord_started(ssh):
+                console.print("[red]✗[/red] Racer Groundlord did not start successfully.")
+                return False
+
+            console.print("[green]✓[/green] Racer Groundlord is running")
+            return True
+
+        finally:
+            ssh.close()
 
 
 def restart_jar() -> bool:
