@@ -108,9 +108,8 @@ TOOL_MENU_CHOICES = [
     "Full Release Update",
     "REFF & Video Extractor",
     "APK Installer",
-    "JAR Management",
+    "Ronen Operations",
     "Folders Reset",
-    "Extract IMU Recordings",
     "Exit",
 ]
 APK_INSTALLER_HEADER = "Select a folder to install APKs from:"
