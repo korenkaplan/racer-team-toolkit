@@ -21,7 +21,6 @@ from racer_team_toolkit.adb.functions import get_connected_android_devices
 from racer_team_toolkit.config import LOCAL_DUMP_DIR, AndroidDevice
 from racer_team_toolkit.reff_extractor.extraction import create_output_directory
 from racer_team_toolkit.reff_extractor.grouping import (
-    get_next_flight_number,
     group_files_into_flights,
     group_videos_into_flights,
 )
@@ -208,9 +207,7 @@ class ExtractionWorker(QObject):
 
         try:
             create_output_directory()
-            next_flight_number = get_next_flight_number()
-
-            copied_reff_files = 0
+                    copied_reff_files = 0
             copied_videos = 0
             flights: list[Flight] = []
             warnings: list[GroupingWarning] = []
@@ -238,9 +235,7 @@ class ExtractionWorker(QObject):
             self.status.emit("")
             self.status.emit("Grouping REFF files into flights...")
 
-            reff_grouping_result = group_files_into_flights(
-                starting_flight_number=next_flight_number,
-            )
+            reff_grouping_result = group_files_into_flights()
 
             flights = reff_grouping_result.flights
 
