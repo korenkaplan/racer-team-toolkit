@@ -66,6 +66,7 @@ def test_reset_counts_every_reff_and_video_source() -> None:
         REFF_REMOTE_PATHS[1]: 3,
         VIDEO_REMOTE_PATHS[0]: 4,
         VIDEO_REMOTE_PATHS[1]: 5,
+        VIDEO_REMOTE_PATHS[2]: 6,
     }
 
     def fake_run_adb(arguments, **_kwargs):
@@ -85,5 +86,24 @@ def test_reset_counts_every_reff_and_video_source() -> None:
 
     assert counts[device.serial] == {
         "reff": 5,
-        "videos": 9,
+        "videos": 15,
     }
+
+
+def test_missing_source_folder_is_ignored_during_extraction() -> None:
+    device = make_device()
+
+    with patch(
+        "racer_team_toolkit.reff_extractor.transfer.get_remote_files_from_today",
+        side_effect=[
+            ["/existing/a.mp4"],
+            [],
+            [],
+        ],
+    ):
+        files = get_remote_files_from_today_from_paths(
+            device,
+            VIDEO_REMOTE_PATHS,
+        )
+
+    assert files == ["/existing/a.mp4"]
