@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import time
 from pathlib import PurePosixPath
+from typing import Callable
 
 from rich.progress import (
     BarColumn,
@@ -36,11 +37,25 @@ from racer_team_toolkit.ui.functions import console
 MIN_REFF_FILE_SIZE_BYTES = 500_000
 MIN_VIDEO_FILE_SIZE_BYTES = 5_000_000
 
+TransferStatusCallback = Callable[[str], None] | None
+
+
+def _emit_status(
+    callback: TransferStatusCallback,
+    message: str,
+) -> None:
+    """Emit a transfer status message when a callback is provided."""
+
+    if callback is not None:
+        callback(message)
+
 
 def pull_reff_files(
     device: AndroidDevice,
     progress: Progress,
     task_id: TaskID,
+    *,
+    status_callback: TransferStatusCallback = None,
 ) -> int:
     """Pull today's valid REFF files from one Android device."""
 
@@ -53,6 +68,7 @@ def pull_reff_files(
         device,
         reff_files,
         MIN_REFF_FILE_SIZE_BYTES,
+        status_callback=status_callback,
     )
 
     reff_files = list(reff_file_sizes)
@@ -62,6 +78,7 @@ def pull_reff_files(
 
     if not reff_files:
         progress.console.print("[dim]  REFF: No files found[/dim]")
+        _emit_status(status_callback, "REFF: No files found")
         return 0
 
     progress.update(
@@ -89,13 +106,20 @@ def pull_reff_files(
             reff_files,
             start=1,
         ):
+            description = f"REFF: {get_transfer_verb()} {file_number} of {total_reff_files} files"
+            _emit_status(
+                status_callback,
+                f"{description}: {PurePosixPath(remote_file).name}",
+            )
+
             pulled = pull_remote_file(
                 device,
                 remote_file,
                 records_dir,
                 progress,
                 task_id,
-                (f"REFF: {get_transfer_verb()} {file_number} of {total_reff_files} files"),
+                description,
+                status_callback=status_callback,
             )
 
             if pulled:
@@ -105,6 +129,7 @@ def pull_reff_files(
             records_dir,
             device,
             successfully_pulled_files,
+            status_callback=status_callback,
         )
 
     finally:
@@ -117,6 +142,8 @@ def pull_videos(
     device: AndroidDevice,
     progress: Progress,
     task_id: TaskID,
+    *,
+    status_callback: TransferStatusCallback = None,
 ) -> int:
     """Pull today's valid screen recordings from one Android device."""
 
@@ -129,6 +156,7 @@ def pull_videos(
         device,
         video_files,
         MIN_VIDEO_FILE_SIZE_BYTES,
+        status_callback=status_callback,
     )
 
     video_files = list(video_file_sizes)
@@ -138,6 +166,7 @@ def pull_videos(
 
     if not video_files:
         progress.console.print("[dim]  Videos: No files found[/dim]")
+        _emit_status(status_callback, "Videos: No files found")
         return 0
 
     progress.update(
@@ -165,13 +194,22 @@ def pull_videos(
             video_files,
             start=1,
         ):
+            description = (
+                f"Videos: {get_transfer_verb()} {file_number} of {total_video_files} files"
+            )
+            _emit_status(
+                status_callback,
+                f"{description}: {PurePosixPath(remote_file).name}",
+            )
+
             pulled = pull_remote_file(
                 device,
                 remote_file,
                 videos_dir,
                 progress,
                 task_id,
-                (f"Videos: {get_transfer_verb()} {file_number} of {total_video_files} files"),
+                description,
+                status_callback=status_callback,
             )
 
             if pulled:
@@ -181,6 +219,7 @@ def pull_videos(
             videos_dir,
             device,
             successfully_pulled_files,
+            status_callback=status_callback,
         )
 
     finally:
@@ -196,6 +235,8 @@ def pull_remote_file(
     progress: Progress,
     task_id: TaskID,
     description: str,
+    *,
+    status_callback: TransferStatusCallback = None,
 ) -> bool:
     """Pull one remote file while displaying live transfer progress."""
 
@@ -259,12 +300,24 @@ def pull_remote_file(
             os.remove(local_file)
 
         console.print(f"[red]✗ Failed to transfer {local_filename}[/red]")
+        _emit_status(
+            status_callback,
+            f"✗ Failed to transfer {local_filename}",
+        )
 
         if error.strip():
             console.print(f"[red]{error.strip()}[/red]")
+            _emit_status(
+                status_callback,
+                error.strip(),
+            )
 
         return False
 
+    _emit_status(
+        status_callback,
+        f"✓ Transferred {local_filename}",
+    )
     return True
 
 
@@ -300,6 +353,8 @@ def filter_remote_files_by_size(
     device: AndroidDevice,
     remote_files: list[str],
     minimum_size_bytes: int,
+    *,
+    status_callback: TransferStatusCallback = None,
 ) -> dict[str, int]:
     """Return remote files that meet the minimum size requirement."""
 
@@ -315,10 +370,15 @@ def filter_remote_files_by_size(
             continue
 
         if file_size < minimum_size_bytes:
-            console.print(
-                f"[yellow]Skipping {PurePosixPath(remote_file).name}: "
+            message = (
+                f"Skipping {PurePosixPath(remote_file).name}: "
                 f"{file_size / 1_000_000:.1f} MB "
-                f"(minimum {minimum_size_bytes / 1_000_000:.1f} MB)[/yellow]"
+                f"(minimum {minimum_size_bytes / 1_000_000:.1f} MB)"
+            )
+            console.print(f"[yellow]{message}[/yellow]")
+            _emit_status(
+                status_callback,
+                f"⚠ {message}",
             )
             continue
 
@@ -331,6 +391,8 @@ def move_video_files(
     videos_dir: str,
     device: AndroidDevice,
     remote_files: list[str],
+    *,
+    status_callback: TransferStatusCallback = None,
 ) -> int:
     """Finalize downloaded videos and delete remote sources in production."""
 
@@ -378,10 +440,15 @@ def move_video_files(
                     if not delete_remote_file(
                         device,
                         remote_file,
+                        status_callback=status_callback,
                     ):
                         console.print(
                             "[yellow]Video copied locally but remote delete failed: "
                             f"{filename}[/yellow]"
+                        )
+                        _emit_status(
+                            status_callback,
+                            f"⚠ Video copied locally but remote delete failed: {filename}",
                         )
                         continue
 
@@ -400,6 +467,8 @@ def move_record_files(
     records_dir: str,
     device: AndroidDevice,
     remote_files: list[str],
+    *,
+    status_callback: TransferStatusCallback = None,
 ) -> int:
     """Finalize downloaded REFF files and delete remote sources in production."""
 
@@ -450,10 +519,15 @@ def move_record_files(
                     if not delete_remote_file(
                         device,
                         remote_file,
+                        status_callback=status_callback,
                     ):
                         console.print(
                             "[yellow]REFF copied locally but remote delete failed: "
                             f"{filename}[/yellow]"
+                        )
+                        _emit_status(
+                            status_callback,
+                            f"⚠ REFF copied locally but remote delete failed: {filename}",
                         )
                         continue
 
@@ -471,6 +545,8 @@ def move_record_files(
 def delete_remote_file(
     device: AndroidDevice,
     remote_file: str,
+    *,
+    status_callback: TransferStatusCallback = None,
 ) -> bool:
     """Delete one remote file after a successful production transfer."""
 
@@ -487,6 +563,11 @@ def delete_remote_file(
 
     if result.returncode != 0:
         return False
+
+    _emit_status(
+        status_callback,
+        f"✓ Removed remote source: {PurePosixPath(remote_file).name}",
+    )
 
     return True
 
@@ -577,10 +658,15 @@ def process_device(
     device: AndroidDevice,
     *,
     include_videos: bool = True,
+    status_callback: TransferStatusCallback = None,
 ) -> DeviceExtractionResult:
     """Pull REFF files from one device and optionally pull its videos."""
 
     print(f"\n[--->] Starting {get_transfer_verb().lower()} from: {device.name}")
+    _emit_status(
+        status_callback,
+        f"▶ Starting {get_transfer_verb().lower()} from {device.name}",
+    )
 
     with Progress(
         SpinnerColumn(),
@@ -601,6 +687,7 @@ def process_device(
             device,
             progress,
             reff_task_id,
+            status_callback=status_callback,
         )
 
         videos = 0
@@ -616,9 +703,14 @@ def process_device(
                 device,
                 progress,
                 video_task_id,
+                status_callback=status_callback,
             )
 
     print(f"[<---] Finished {get_transfer_verb().lower()} from: {device.name}")
+    _emit_status(
+        status_callback,
+        f"✓ Finished {get_transfer_verb().lower()} from {device.name}",
+    )
 
     return DeviceExtractionResult(
         reff_files=reff_files,

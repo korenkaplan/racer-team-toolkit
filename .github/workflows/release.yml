@@ -1,4 +1,4 @@
-name: Build and Release Windows EXE
+name: Build and Release Windows CLI and GUI EXEs
 
 on:
   push:
@@ -34,25 +34,84 @@ jobs:
       - name: Run tests
         run: uv run pytest
 
-      - name: Set production mode
+      - name: Locate Android Platform Tools
         shell: pwsh
         run: |
-          (Get-Content src/racer_team_toolkit/config.py) `
-            -replace 'PROJECT_STATUS = "development"', 'PROJECT_STATUS = "production"' `
-            | Set-Content src/racer_team_toolkit/config.py
+          $platformTools = Join-Path $env:ANDROID_HOME "platform-tools"
 
-      - name: Build Windows executable
-        run: >
-          uv run pyinstaller
-          --onefile
-          --name racer-team-toolkit
-          src/racer_team_toolkit/main.py
+          if (-not (Test-Path "$platformTools\adb.exe")) {
+              throw "adb.exe was not found in $platformTools"
+          }
+
+          if (-not (Test-Path "$platformTools\AdbWinApi.dll")) {
+              throw "AdbWinApi.dll was not found in $platformTools"
+          }
+
+          if (-not (Test-Path "$platformTools\AdbWinUsbApi.dll")) {
+              throw "AdbWinUsbApi.dll was not found in $platformTools"
+          }
+
+      - name: Create production environment
+        shell: pwsh
+        env:
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SSH_PASSWORD)) {
+              throw "SSH_PASSWORD GitHub secret is missing"
+          }
+
+          @"
+          RACER_TOOLKIT_STATUS=production
+          SSH_PASSWORD=$env:SSH_PASSWORD
+          "@ | Set-Content .env
+
+      - name: Build CLI executable
+        shell: pwsh
+        run: |
+          $platformTools = Join-Path $env:ANDROID_HOME "platform-tools"
+
+          uv run pyinstaller `
+            --clean `
+            --onefile `
+            --name racer-team-toolkit `
+            --icon "assets/racer-team-toolkit.ico" `
+            --add-data ".env;." `
+            --add-binary "$platformTools\adb.exe;." `
+            --add-binary "$platformTools\AdbWinApi.dll;." `
+            --add-binary "$platformTools\AdbWinUsbApi.dll;." `
+            src/racer_team_toolkit/main.py
+
+      - name: Build GUI executable
+        shell: pwsh
+        run: |
+          $platformTools = Join-Path $env:ANDROID_HOME "platform-tools"
+
+          uv run pyinstaller `
+            --clean `
+            --onefile `
+            --windowed `
+            --name racer-team-toolkit-gui `
+            --icon "assets/racer-team-toolkit.ico" `
+            --add-data ".env;." `
+            --add-binary "$platformTools\adb.exe;." `
+            --add-binary "$platformTools\AdbWinApi.dll;." `
+            --add-binary "$platformTools\AdbWinUsbApi.dll;." `
+            src/racer_team_toolkit/gui/main.py
+
+      - name: Verify executables exist
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\racer-team-toolkit.exe")) {
+              throw "CLI executable was not created"
+          }
+
+          if (-not (Test-Path "dist\racer-team-toolkit-gui.exe")) {
+              throw "GUI executable was not created"
+          }
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "${{ github.ref_name }}"
-          "dist/racer-team-toolkit.exe"
-          --title "${{ github.ref_name }}"
-          --generate-notes
+        shell: pwsh
+        run: |
+          gh release create "${{ github.ref_name }}"             "dist/racer-team-toolkit.exe"             "dist/racer-team-toolkit-gui.exe"             --title "${{ github.ref_name }}"             --generate-notes
