@@ -138,7 +138,7 @@ def print_extraction_result(
             )
 
         summary: dict[str, int] = {
-            "Flight folders created": len(flights),
+            "Flight folders in dump": len(flights),
             f"REFF files {get_transfer_verb().lower()}": copied_reff_files,
         }
 
