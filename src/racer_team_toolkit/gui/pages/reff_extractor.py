@@ -789,7 +789,7 @@ class ReffExtractorPage(QWidget):
 
         self._append_log("")
         self._append_log("Extraction Summary")
-        self._append_log(f"Flight folders created: {len(flights)}")
+        self._append_log(f"Flight folders in dump: {len(flights)}")
         self._append_log(f"REFF files {transfer_verb}: {result['copied_reff_files']}")
 
         if include_videos:
