@@ -77,10 +77,10 @@ def group_files_into_flights(
         unmatched_files,
     )
 
-    # Standalone REFFs count as flights, so reserve their positions after
-    # the highest existing Flight_* number before numbering new folders.
+    # New folders continue from the highest assigned Flight_* number.
+    # Remaining standalone REFFs are counted when calculating the next number.
     highest_existing_number = get_highest_flight_folder_number()
-    flight_number = highest_existing_number + len(remaining_standalone) + 1
+    flight_number = highest_existing_number + 1
 
     created_flights: list[Flight] = []
 
