@@ -23,7 +23,8 @@ from racer_team_toolkit.adb import (
 from racer_team_toolkit.config import (
     LOCAL_DUMP_DIR,
     PROJECT_STATUS,
-    VIDEO_REMOTE_PATH,
+    REFF_REMOTE_PATHS,
+    VIDEO_REMOTE_PATHS,
     AndroidDevice,
 )
 from racer_team_toolkit.reff_extractor.extraction_dataclasses import (
@@ -38,6 +39,25 @@ MIN_REFF_FILE_SIZE_BYTES = 500_000
 MIN_VIDEO_FILE_SIZE_BYTES = 5_000_000
 
 TransferStatusCallback = Callable[[str], None] | None
+
+
+def get_remote_files_from_today_from_paths(
+    device: AndroidDevice,
+    remote_paths: tuple[str, ...],
+) -> list[str]:
+    """Return today's files from every configured remote source path."""
+
+    files: list[str] = []
+
+    for remote_path in remote_paths:
+        files.extend(
+            get_remote_files_from_today(
+                device,
+                remote_path,
+            )
+        )
+
+    return list(dict.fromkeys(files))
 
 
 def _emit_status(
@@ -59,9 +79,9 @@ def pull_reff_files(
 ) -> int:
     """Pull today's valid REFF files from one Android device."""
 
-    reff_files = get_remote_files_from_today(
+    reff_files = get_remote_files_from_today_from_paths(
         device,
-        device.remote_log_path,
+        REFF_REMOTE_PATHS,
     )
 
     reff_file_sizes = filter_remote_files_by_size(
@@ -147,9 +167,9 @@ def pull_videos(
 ) -> int:
     """Pull today's valid screen recordings from one Android device."""
 
-    video_files = get_remote_files_from_today(
+    video_files = get_remote_files_from_today_from_paths(
         device,
-        VIDEO_REMOTE_PATH,
+        VIDEO_REMOTE_PATHS,
     )
 
     video_file_sizes = filter_remote_files_by_size(
