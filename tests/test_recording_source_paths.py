@@ -32,7 +32,8 @@ def test_default_source_lists_cover_both_android_layouts() -> None:
     )
     assert VIDEO_REMOTE_PATHS == (
         "/sdcard/Eyesatop-Records/Videos/Full-Screen",
-        "/sdcard/Eyesatop-Records/Videos/Screen-Records",
+        "/sdcard/Eyesatop-Records/Videos/Camera-Only",
+        "/sdcard/Eyesatop-Records/Screen-Videos",
     )
 
 
