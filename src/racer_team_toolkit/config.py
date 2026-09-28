@@ -60,7 +60,8 @@ REFF_REMOTE_PATHS = (
 )
 VIDEO_REMOTE_PATHS = (
     "/sdcard/Eyesatop-Records/Videos/Full-Screen",
-    "/sdcard/Eyesatop-Records/Videos/Screen-Records",
+    "/sdcard/Eyesatop-Records/Videos/Camera-Only",
+    "/sdcard/Eyesatop-Records/Screen-Videos",
 )
 
 # Keep primary-path aliases for existing device configuration and integrations.
