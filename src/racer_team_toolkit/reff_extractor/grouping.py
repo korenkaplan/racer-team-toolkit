@@ -433,12 +433,12 @@ def flight_is_within_time_limit(
 
 
 def get_next_flight_number() -> int:
-    """Return the next number based on existing top-level flight items."""
+    """Return the next number based only on existing flight folders."""
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
         return 1
 
-    flight_count = 0
+    flight_numbers: list[int] = []
 
     for name in os.listdir(LOCAL_DUMP_DIR):
         path = os.path.join(
@@ -446,21 +446,23 @@ def get_next_flight_number() -> int:
             name,
         )
 
-        if os.path.isdir(path) and name.startswith("Flight_"):
-            flight_count += 1
+        if not os.path.isdir(path) or not name.startswith("Flight_"):
             continue
 
-        if not os.path.isfile(path):
+        parts = name.split("_", 2)
+
+        if len(parts) < 2:
             continue
 
-        if name.upper().startswith(f"{VIDEO_FILE_PREFIX}_"):
-            flight_count += 1
+        try:
+            flight_numbers.append(int(parts[1]))
+        except ValueError:
             continue
 
-        if name.lower().endswith(".reff") and get_device_type_from_filename(name) is not None:
-            flight_count += 1
+    if not flight_numbers:
+        return 1
 
-    return flight_count + 1
+    return max(flight_numbers) + 1
 
 
 def create_flight_directory(flight_number: int, first_file_mtime: float) -> tuple[str, str]:
