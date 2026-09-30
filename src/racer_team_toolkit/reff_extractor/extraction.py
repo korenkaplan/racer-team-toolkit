@@ -6,6 +6,7 @@ from racer_team_toolkit.config import (
     AndroidDevice,
 )
 from racer_team_toolkit.reff_extractor.grouping import (
+    get_next_flight_number,
     group_files_into_flights,
     group_videos_into_flights,
 )
@@ -69,6 +70,8 @@ def run_extraction(*, include_videos: bool) -> None:
     flights: list[Flight] = []
     warnings: list[GroupingWarning] = []
 
+    starting_flight_number = get_next_flight_number()
+
     for device in devices_to_process:
         result = process_device(
             device,
@@ -81,7 +84,9 @@ def run_extraction(*, include_videos: bool) -> None:
         processed_any = True
 
     if processed_any:
-        reff_grouping_result = group_files_into_flights()
+        reff_grouping_result = group_files_into_flights(
+            starting_flight_number=starting_flight_number,
+        )
 
         flights = reff_grouping_result.flights
 

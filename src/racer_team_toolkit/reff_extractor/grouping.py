@@ -36,11 +36,10 @@ def group_files_into_flights(
     Every top-level REFF is reconsidered on every run, including files left
     standalone by previous extractions.
 
-    The starting_flight_number argument is kept for compatibility with older
-    callers. Numbering is derived from the current dump-folder state.
+    Callers capture starting_flight_number before extracting new files, so
+    existing standalone REFFs count but incoming REFFs are not counted twice.
+    Without a snapshot, continue after the highest existing folder number.
     """
-
-    del starting_flight_number
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
         return ReffGroupingResult(
@@ -79,7 +78,7 @@ def group_files_into_flights(
 
     # New folders continue from the highest assigned Flight_* number.
     highest_existing_number = get_highest_flight_folder_number()
-    flight_number = highest_existing_number + 1
+    flight_number = max(starting_flight_number or 1, highest_existing_number + 1)
 
     created_flights: list[Flight] = []
 
@@ -110,7 +109,9 @@ def group_files_into_flights(
     return ReffGroupingResult(
         flights=flights,
         standalone_reffs=remaining_standalone,
-        next_flight_number=get_next_flight_number(),
+        # Carry the pre-extraction snapshot through to video grouping without
+        # counting REFFs that may be consumed by their matching videos.
+        next_flight_number=max(flight_number, get_highest_flight_folder_number() + 1),
     )
 
 
@@ -240,6 +241,7 @@ def get_flight_number_from_name(name: str) -> int | None:
     match = re.match(
         r"^Flight_(\d+)(?:_|$)",
         name,
+        re.IGNORECASE,
     )
 
     if match is None:
@@ -687,12 +689,16 @@ def flight_is_within_time_limit(
 
 
 def get_next_flight_number() -> int:
-    """Continue after the highest flight folder, ignoring standalone files."""
+    """Capture the next number BEFORE extraction, counting existing standalone REFFs.
+
+    Do not call this between REFF and video grouping: incoming REFFs may still
+    join a folder and must not reserve their own additional flight number.
+    """
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
         return 1
 
-    return get_highest_flight_folder_number() + 1
+    return get_highest_flight_folder_number() + len(collect_reff_files()) + 1
 
 
 def create_flight_directory(flight_number: int, first_file_mtime: float) -> tuple[str, str]:
