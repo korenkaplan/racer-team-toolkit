@@ -509,8 +509,6 @@ def build_device_file_corrections(
 ) -> tuple[list[FileTimeCorrection], int, int]:
     """Build REFF and video corrections for one incorrect device."""
 
-    device = device_info.device
-
     reff_files = [
         file_path
         for remote_path in REFF_REMOTE_PATHS

@@ -97,9 +97,7 @@ def test_previous_standalone_reff_is_reconsidered_on_later_run(
     second_result = grouping.group_files_into_flights()
 
     flight_dirs = [
-        path
-        for path in tmp_path.iterdir()
-        if path.is_dir() and path.name.startswith("Flight_")
+        path for path in tmp_path.iterdir() if path.is_dir() and path.name.startswith("Flight_")
     ]
 
     assert len(flight_dirs) == 1
@@ -109,11 +107,11 @@ def test_previous_standalone_reff_is_reconsidered_on_later_run(
     assert second_result.standalone_reffs == []
 
 
-def test_numbering_starts_after_highest_folder_and_counts_standalone_reffs_only(
+def test_numbering_starts_after_highest_folder_and_ignores_standalone_files(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """Deleted folder numbers stay unused and standalone videos do not count."""
+    """Deleted folder numbers stay unused and standalone files do not count."""
 
     monkeypatch.setattr(
         grouping,
@@ -133,7 +131,7 @@ def test_numbering_starts_after_highest_folder_and_counts_standalone_reffs_only(
         mtime=1_800_001_100.0,
     )
 
-    assert grouping.get_next_flight_number() == 7
+    assert grouping.get_next_flight_number() == 6
 
 
 def test_existing_flight_name_is_not_changed_when_reff_joins(
@@ -168,8 +166,40 @@ def test_existing_flight_name_is_not_changed_when_reff_joins(
     assert flight_dir.is_dir()
     assert (flight_dir / "ISR_new.reff").is_file()
     assert not any(
-        path.is_dir()
-        and path.name.startswith("Flight_")
-        and path.name != flight_name
+        path.is_dir() and path.name.startswith("Flight_") and path.name != flight_name
         for path in tmp_path.iterdir()
     )
+
+
+def test_standalone_files_do_not_skip_first_video_created_flight(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """REFF/video grouping starts at 1 even with other standalone recordings."""
+
+    monkeypatch.setattr(grouping, "LOCAL_DUMP_DIR", str(tmp_path))
+    base_time = 1_800_000_000.0
+    for index in range(3):
+        write_file(
+            tmp_path / f"ISR_unmatched_{index}.reff",
+            mtime=base_time - (index + 1) * 3600,
+        )
+    write_file(tmp_path / "RACER_current.reff", mtime=base_time)
+    write_file(tmp_path / "VIDEO_RACER_current.mp4", mtime=base_time + 20)
+
+    reff_result = grouping.group_files_into_flights()
+    assert reff_result.next_flight_number == 1
+
+    grouping.group_videos_into_flights(
+        reff_result.flights,
+        reff_result.standalone_reffs,
+        reff_result.next_flight_number,
+    )
+
+    flight_dirs = [path for path in tmp_path.iterdir() if path.is_dir()]
+    assert len(flight_dirs) == 1
+    assert flight_dirs[0].name.startswith("Flight_01_")
+    assert (flight_dirs[0] / "RACER_current.reff").is_file()
+    assert (flight_dirs[0] / "VIDEO_RACER_current.mp4").is_file()
+    assert grouping.get_next_flight_number() == 2
+    assert len(list(tmp_path.glob("ISR_*.reff"))) == 3

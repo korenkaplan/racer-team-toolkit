@@ -78,7 +78,6 @@ def group_files_into_flights(
     )
 
     # New folders continue from the highest assigned Flight_* number.
-    # Remaining standalone REFFs are counted when calculating the next number.
     highest_existing_number = get_highest_flight_folder_number()
     flight_number = highest_existing_number + 1
 
@@ -287,10 +286,7 @@ def find_best_existing_flight_for_reff(
             continue
 
         # Only one REFF from each device type may belong to one flight.
-        if any(
-            existing.device_type == reff.device_type
-            for existing in flight.reff_files
-        ):
+        if any(existing.device_type == reff.device_type for existing in flight.reff_files):
             continue
 
         proposed_files = [*flight.reff_files, reff]
@@ -356,6 +352,7 @@ def attach_reff_to_flight(
     except OSError as error:
         print(f"[!] Failed to move REFF file {reff.filename}: {error}")
         return False
+
 
 def group_videos_into_flights(
     flights: list[Flight],
@@ -690,19 +687,13 @@ def flight_is_within_time_limit(
 
 
 def get_next_flight_number() -> int:
-    """Return the next flight number without filling deleted folder gaps.
-
-    Existing Flight_* folders keep their assigned numbers. Every top-level
-    standalone REFF also counts as a flight. Standalone videos do not count.
-    """
+    """Continue after the highest flight folder, ignoring standalone files."""
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
         return 1
 
-    highest_flight_number = get_highest_flight_folder_number()
-    standalone_reff_count = len(collect_reff_files())
+    return get_highest_flight_folder_number() + 1
 
-    return highest_flight_number + standalone_reff_count + 1
 
 def create_flight_directory(flight_number: int, first_file_mtime: float) -> tuple[str, str]:
     """Create a flight directory named with its number and first-file timestamp."""

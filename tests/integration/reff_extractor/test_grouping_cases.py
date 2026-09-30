@@ -945,7 +945,7 @@ def test_case_09_repeated_extraction_numbering_continuity(
     monkeypatch: pytest.MonkeyPatch,
     connected_test_devices: set[str],
 ) -> None:
-    """Standalone REFFs count as flights; standalone videos do not."""
+    """Standalone files must not consume flight folder numbers."""
 
     del connected_test_devices
     ensure_real_remote_directories()
@@ -959,25 +959,22 @@ def test_case_09_repeated_extraction_numbering_continuity(
         "Case_09_Numbering_Continuity",
         title="Repeated extraction / numbering continuity",
         purpose=(
-            "Verify repeated-extraction numbering. Existing Flight_01 and "
-            "Flight_02 keep their numbers. The old standalone REFF counts as "
-            "flight 3, while the standalone video does not count. A newly "
-            "extracted standalone REFF counts as flight 4 before its matching "
-            "video creates the next folder."
+            "Verify repeated-extraction numbering uses only existing Flight_* "
+            "folders. Standalone REFF and video files must not consume flight "
+            "numbers, so the next created folder after Flight_02 is Flight_03."
         ),
         setup=(
             "Step 1 -> create Flight_01 from real Android files.\n"
             "Step 2 -> create Flight_02 from real Android files.\n"
             "Step 3 -> leave one standalone REFF and one standalone video.\n"
-            "           Only the REFF counts as a flight.\n"
+            "           They must not affect flight numbering.\n"
             "Step 4 -> extract a new matching REFF/video pair."
         ),
         expected=(
             "DUMP contains Flight_01 and Flight_02.\n"
-            "DUMP contains one standalone REFF, which counts as flight 3.\n"
-            "DUMP contains one standalone video, which does not count.\n"
-            "The new RACER REFF counts as flight 4 before its video is grouped.\n"
-            "The created folder is therefore Flight_05."
+            "DUMP contains one standalone REFF.\n"
+            "DUMP contains one standalone video.\n"
+            "The next created folder is Flight_03."
         ),
     ) as (case_dir, dump_dir):
         patch_dump(monkeypatch, dump_dir)
@@ -1048,7 +1045,7 @@ def test_case_09_repeated_extraction_numbering_continuity(
                 starting_flight_number=next_number,
             )
 
-            # Step 3: only the standalone REFF affects flight numbering.
+            # Step 3: standalone REFF and standalone video do not consume numbers.
             standalone_reff = push_reff(
                 ISR_SERIAL,
                 "RTT_TEST_C09_STANDALONE.reff",
@@ -1079,35 +1076,34 @@ def test_case_09_repeated_extraction_numbering_continuity(
                 starting_flight_number=3,
             )
 
-            assert grouping.get_next_flight_number() == 4
+            assert grouping.get_next_flight_number() == 3
 
             (case_dir / "NUMBERING_MAP.txt").write_text(
                 "1 = Flight_01\n"
                 "2 = Flight_02\n"
-                "3 = standalone REFF\n"
-                "standalone video = not counted\n"
-                "4 = next flight number before the next extraction\n",
+                "standalone REFF/video = no flight number\n"
+                "3 = next created flight (must be Flight_03)\n",
                 encoding="utf-8",
             )
 
-            # Step 4: a new REFF is itself a flight before video grouping.
+            # Step 4: standalone files must not affect the next folder number.
             next_number = grouping.get_next_flight_number()
-            assert next_number == 4
+            assert next_number == 3
 
-            racer_5 = push_reff(
+            racer_3 = push_reff(
                 TABLET_SERIAL,
-                "RTT_TEST_C09_RACER_5.reff",
+                "RTT_TEST_C09_RACER_3.reff",
                 ts(10, 0, 0),
             )
-            video_5 = push_video(
+            video_3 = push_video(
                 TABLET_SERIAL,
-                "RTT_TEST_C09_RACER_5.mp4",
+                "RTT_TEST_C09_RACER_3.mp4",
                 ts(10, 0, 20),
             )
             cleanup[TABLET_SERIAL].extend(
                 [
-                    racer_5,
-                    video_5,
+                    racer_3,
+                    video_3,
                 ]
             )
 
@@ -1115,8 +1111,8 @@ def test_case_09_repeated_extraction_numbering_continuity(
                 monkeypatch,
                 serial=TABLET_SERIAL,
                 device_type="RACER",
-                reff_files=[racer_5],
-                video_files=[video_5],
+                reff_files=[racer_3],
+                video_files=[video_3],
             )
 
             run_grouping(
@@ -1131,9 +1127,9 @@ def test_case_09_repeated_extraction_numbering_continuity(
 
             assert any(name.startswith("Flight_01_") for name in flight_names)
             assert any(name.startswith("Flight_02_") for name in flight_names)
-            assert any(name.startswith("Flight_05_") for name in flight_names)
-            assert not any(name.startswith("Flight_03_") for name in flight_names)
+            assert any(name.startswith("Flight_03_") for name in flight_names)
             assert not any(name.startswith("Flight_04_") for name in flight_names)
+            assert not any(name.startswith("Flight_05_") for name in flight_names)
 
             assert (dump_dir / "ISR_RTT_TEST_C09_STANDALONE.reff").is_file()
             assert (dump_dir / "VIDEO_RACER_RTT_TEST_C09_STANDALONE.mp4").is_file()

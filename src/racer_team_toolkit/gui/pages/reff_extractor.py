@@ -207,7 +207,7 @@ class ExtractionWorker(QObject):
 
         try:
             create_output_directory()
-                    copied_reff_files = 0
+            copied_reff_files = 0
             copied_videos = 0
             flights: list[Flight] = []
             warnings: list[GroupingWarning] = []

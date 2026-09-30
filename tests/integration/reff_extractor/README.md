@@ -75,13 +75,12 @@ Case 09 intentionally leaves this visible state before creating the next flight:
 ```text
 1 = Flight_01
 2 = Flight_02
-3 = standalone REFF
-4 = standalone video
-5 = next created flight
+standalone REFF/video = no flight number
+3 = next created flight
 ```
 
 The final visible result must contain `Flight_01`, `Flight_02`, the standalone
-REFF/video, and `Flight_05`.
+REFF/video, and `Flight_03`.
 
 The case folder also contains `NUMBERING_MAP.txt`.
 
