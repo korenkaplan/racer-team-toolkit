@@ -19,7 +19,15 @@ def connection_header(state: ConnectionState) -> FormattedText:
     elif not state.android_names:
         parts.append(("fg:ansired", "● No Android devices"))
     else:
-        parts.append(("fg:ansigreen bold", "   ".join(f"● {name}" for name in state.android_names)))
+        for index, name in enumerate(state.android_names):
+            if index:
+                parts.append(("", "   "))
+            style = (
+                "fg:ansiyellow"
+                if name.endswith(("(offline)", "(unauthorized)"))
+                else "fg:ansigreen bold"
+            )
+            parts.append((style, f"● {name}"))
     parts.append(("", "   "))
     if state.ronen_connected is None:
         parts.append(("fg:ansiyellow", "● Ronen: Checking…"))
@@ -48,7 +56,9 @@ def select_connected_menu(monitor: ConnectionMonitor, choices: list[str]) -> str
     )
     application.layout.container = HSplit([panel, application.layout.container])
     monitor.set_notify(application.invalidate)
+    monitor.set_menu_active(True)
     try:
         return question.ask()
     finally:
+        monitor.set_menu_active(False)
         monitor.set_notify(None)
