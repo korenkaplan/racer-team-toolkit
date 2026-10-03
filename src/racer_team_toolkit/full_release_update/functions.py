@@ -10,8 +10,8 @@ from racer_team_toolkit.apk_installer.functions import (
     build_installation_plan,
     contains_apk_files,
     get_folders_in_downloads,
-    run_installation,
 )
+from racer_team_toolkit.apk_installer.main import install_with_progress
 from racer_team_toolkit.config import AndroidDevice
 from racer_team_toolkit.full_release_update.dataclasses import ReleaseUpdatePlan
 from racer_team_toolkit.jar_management.config import JAR_FILENAME
@@ -153,12 +153,12 @@ def run_apk_updates(
     plan: ReleaseUpdatePlan,
     console,
 ) -> list[InstallationResult]:
-    """Run the existing APK installation flow for the selected APK plan."""
+    """Install APKs concurrently with per-device Rich progress."""
 
     if not plan.install_apk:
         return []
 
-    return [run_installation(item, console) for item in plan.apk_plan]
+    return install_with_progress(plan.apk_plan)
 
 
 def run_jar_update(plan: ReleaseUpdatePlan) -> bool | None:
@@ -218,8 +218,8 @@ def print_release_update_results(
 
             elif result.status == "success":
                 result_text = Text(
-                    "SUCCESS",
-                    style="green",
+                    f"SUCCESS WITH WARNINGS\n{result.message}" if result.message else "SUCCESS",
+                    style="yellow" if result.message else "green",
                 )
 
             elif result.status == "skipped":
