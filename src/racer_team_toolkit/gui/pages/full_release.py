@@ -1,6 +1,6 @@
 """PySide6 Full Release Update page."""
 
-import io
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -20,12 +20,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from rich.console import Console
 
 from racer_team_toolkit.adb.functions import get_connected_android_devices
 from racer_team_toolkit.apk_installer.functions import (
     InstallationResult,
-    run_installation,
+    install_devices,
 )
 from racer_team_toolkit.full_release_update.dataclasses import (
     ReleaseUpdatePlan,
@@ -87,7 +86,7 @@ class ReleaseLoadWorker(QObject):
 
 
 class ReleaseExecutionWorker(QObject):
-    """Execute APK updates followed by the JAR update."""
+    """Execute independent APK and JAR updates concurrently."""
 
     status = Signal(str)
     progress = Signal(int, int)
@@ -105,77 +104,47 @@ class ReleaseExecutionWorker(QObject):
     def run(self) -> None:
         """Run the complete release plan."""
 
-        quiet_console = Console(
-            file=io.StringIO(),
-            force_terminal=False,
-        )
-        apk_results: list[InstallationResult] = []
-        jar_result: bool | None = None
-        jar_blocked = False
-
+        apk_results = []
+        jar_result = None
         try:
-            enabled_apks = len(self.plan.apk_plan) if self.plan.install_apk else 0
-            total_steps = enabled_apks + (1 if self.plan.upload_jar else 0)
-            completed = 0
-
-            self.status.emit("APK Updates")
-
-            if not self.plan.install_apk:
-                self.status.emit("APK updates: SKIPPED")
-            else:
-                for item in self.plan.apk_plan:
-                    self.status.emit("")
-                    self.status.emit(f"▶ APK target: {item.device.name}")
-
-                    result = run_installation(
-                        item,
-                        quiet_console,
-                        status_callback=self.status.emit,
-                    )
-                    apk_results.append(result)
-
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = {}
+                if self.plan.install_apk:
+                    futures[
+                        executor.submit(
+                            install_devices,
+                            self.plan.apk_plan,
+                            status_callback=lambda serial, message: self.status.emit(
+                                f"{serial}: {message}"
+                            ),
+                        )
+                    ] = "APK"
+                if self.plan.ronen_connected and self.plan.upload_jar:
+                    futures[executor.submit(self._run_jar_update, self.plan.jar_file)] = "JAR"
+                completed = 0
+                total = len(futures)
+                for future in as_completed(futures):
+                    component = futures[future]
+                    try:
+                        result = future.result()
+                    except Exception as error:
+                        self.status.emit(f"✗ {component} update failed: {error}")
+                        result = (
+                            False
+                            if component == "JAR"
+                            else [
+                                InstallationResult(item.device, "failed", str(error))
+                                for item in self.plan.apk_plan
+                                if item.apk_path is not None
+                            ]
+                        )
+                    if component == "APK":
+                        apk_results = result
+                    else:
+                        jar_result = result
                     completed += 1
-                    self.progress.emit(
-                        completed,
-                        max(total_steps, 1),
-                    )
-
-            apk_failed = any(result.status == "failed" for result in apk_results)
-
-            jar_blocked = apk_failed and self.plan.upload_jar
-
-            self.status.emit("")
-            self.status.emit("JAR Update")
-
-            if jar_blocked:
-                self.status.emit("✗ One or more APK installations failed.")
-                self.status.emit(
-                    "JAR upload was not started because "
-                    "the APK update did not complete successfully."
-                )
-
-            elif not self.plan.upload_jar:
-                self.status.emit("JAR update: SKIPPED")
-
-            elif self.plan.jar_file is None:
-                self.status.emit("✗ JAR file was not selected.")
-                jar_result = False
-
-            else:
-                jar_result = self._run_jar_update(self.plan.jar_file)
-
-                completed += 1
-                self.progress.emit(
-                    completed,
-                    max(total_steps, 1),
-                )
-
-            self.finished.emit(
-                apk_results,
-                jar_result,
-                jar_blocked,
-            )
-
+                    self.progress.emit(completed, max(total, 1))
+            self.finished.emit(apk_results, jar_result, False)
         except Exception as error:
             self.failed.emit(str(error))
 
@@ -222,6 +191,7 @@ class ReleaseExecutionWorker(QObject):
                 ssh,
                 jar_path,
                 progress_callback=self.jar_transfer.emit,
+                show_progress=False,
             ):
                 self.status.emit("✗ JAR upload failed.")
                 return False
@@ -565,6 +535,7 @@ class FullReleasePage(QWidget):
 
         self.skip_apks_checkbox.setChecked(False)
         self.skip_jar_checkbox.setChecked(not self.plan.upload_jar)
+        self.skip_jar_checkbox.setEnabled(self.plan.ronen_connected)
 
         self._append_log("")
         self._append_log(f"Selected release folder: {folder}")
@@ -579,7 +550,7 @@ class FullReleasePage(QWidget):
             self.run_button.setEnabled(False)
             return
 
-        rows = len(self.plan.apk_plan) + 1
+        rows = len(self.plan.apk_plan) + int(self.plan.ronen_connected)
         self.plan_table.setRowCount(rows)
 
         for row, item in enumerate(self.plan.apk_plan):
@@ -604,28 +575,29 @@ class FullReleasePage(QWidget):
                     QTableWidgetItem(value),
                 )
 
-        jar_row = rows - 1
+        if self.plan.ronen_connected:
+            jar_row = rows - 1
 
-        if self.plan.jar_file is None:
-            jar_name = "JAR NOT FOUND"
-            jar_action = "SKIP"
-        else:
-            jar_name = self.plan.jar_file.name
-            jar_action = "UPLOAD" if self.plan.upload_jar else "SKIP"
+            if self.plan.jar_file is None:
+                jar_name = "JAR NOT FOUND"
+                jar_action = "SKIP"
+            else:
+                jar_name = self.plan.jar_file.name
+                jar_action = "UPLOAD" if self.plan.upload_jar else "SKIP"
 
-        for column, value in enumerate(
-            [
-                "JAR",
-                "Racer Groundlord",
-                jar_name,
-                jar_action,
-            ]
-        ):
-            self.plan_table.setItem(
-                jar_row,
-                column,
-                QTableWidgetItem(value),
-            )
+            for column, value in enumerate(
+                [
+                    "JAR",
+                    "Racer Groundlord",
+                    jar_name,
+                    jar_action,
+                ]
+            ):
+                self.plan_table.setItem(
+                    jar_row,
+                    column,
+                    QTableWidgetItem(value),
+                )
 
         self.plan_table.resizeColumnsToContents()
 
@@ -660,7 +632,7 @@ class FullReleasePage(QWidget):
         if self.skip_jar_checkbox.isChecked():
             skip_jar_upload(self.plan)
         else:
-            self.plan.upload_jar = self.plan.jar_file is not None
+            self.plan.upload_jar = self.plan.ronen_connected and self.plan.jar_file is not None
 
         self._render_plan()
 
@@ -843,7 +815,8 @@ class FullReleasePage(QWidget):
         else:
             jar_text = "NOT RUN"
 
-        self._append_log(f"JAR | Racer Groundlord | {jar_text}")
+        if self.plan.ronen_connected:
+            self._append_log(f"JAR | Racer Groundlord | {jar_text}")
         self._append_log("")
         self._append_log("Full release update finished.")
 

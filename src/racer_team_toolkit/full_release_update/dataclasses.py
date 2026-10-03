@@ -18,6 +18,7 @@ class ReleaseUpdatePlan:
     jar_source_folder: Path | None
     install_apk: bool = True
     upload_jar: bool = True
+    ronen_connected: bool = True
 
     @property
     def source_folders_differ(self) -> bool:
