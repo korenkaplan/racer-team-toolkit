@@ -11,7 +11,7 @@ from racer_team_toolkit.apk_installer.functions import (
     InstallationResult,
     build_installation_plan,
     get_folders_in_downloads,
-    run_installation,
+    install_devices,
 )
 from racer_team_toolkit.config import (
     APK_INSTALLER_APPROVAL_CHOICES,
@@ -37,18 +37,26 @@ def main() -> None:
         return
 
     folders = get_folders_in_downloads()
+
     while True:
         folder = choose_folder(folders)
         plan = build_installation_plan(folder, connected_devices)
         print_installation_plan(plan)
-        approval = select_menu("Install the APKs shown above?", APK_INSTALLER_APPROVAL_CHOICES)
+
+        approval = select_menu(
+            "Install the APKs shown above?",
+            APK_INSTALLER_APPROVAL_CHOICES,
+        )
 
         if approval == "Choose another folder":
             continue
+
         if approval != "Yes":
             return
 
-        results = [run_installation(item, console) for item in plan]
+        with console.status("Installing APKs on connected devices..."):
+            results = install_devices(plan)
+
         print_installation_results(results)
         return
 
@@ -96,7 +104,7 @@ def print_installation_results(results: list[InstallationResult]) -> None:
     for result in results:
         label, color = status_text[result.status]
         result_text = label
-        if result.status == "failed" and result.message:
+        if result.message:
             result_text = f"{label}\n{result.message}"
         table.add_row(result.device.name, Text(result_text, style=color))
 
