@@ -8,6 +8,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from racer_team_toolkit.adb.functions import run_adb_command
 from racer_team_toolkit.config import AndroidDevice
+from racer_team_toolkit.multithreading.functions import run_tasks
 
 StatusCallback = Callable[[str], None] | None
 
@@ -27,6 +28,71 @@ class InstallationResult:
     device: AndroidDevice
     status: str
     message: str = ""
+
+
+def install_devices(
+    plan: list[InstallationPlan],
+    *,
+    status_callback: Callable[[str, str], None] | None = None,
+) -> list[InstallationResult]:
+    """Install concurrently, forwarding per-device status updates."""
+
+    if not plan:
+        return []
+
+    def worker(item: InstallationPlan) -> InstallationResult:
+        def report(message: str) -> None:
+            if status_callback is not None:
+                status_callback(item.device.serial, message)
+
+        report("Starting...")
+
+        try:
+            result = install_device(item, status_callback=report)
+        except Exception as error:
+            result = InstallationResult(
+                device=item.device,
+                status="failed",
+                message=f"{type(error).__name__}: {error}",
+            )
+
+        final_status = {
+            "success": ("✓ Completed with warnings" if result.message else "✓ Completed"),
+            "failed": "✗ Failed",
+            "skipped": "⚠ Skipped — no matching APK",
+        }
+        report(final_status[result.status])
+        return result
+
+    task_results = run_tasks(
+        items=plan,
+        task=worker,
+        max_workers=len(plan),
+    )
+
+    results: list[InstallationResult] = []
+
+    for task_result in task_results:
+        if task_result.error is not None:
+            results.append(
+                InstallationResult(
+                    device=task_result.item.device,
+                    status="failed",
+                    message=(f"{type(task_result.error).__name__}: {task_result.error}"),
+                )
+            )
+        elif task_result.value is None:
+            results.append(
+                InstallationResult(
+                    device=task_result.item.device,
+                    status="failed",
+                    message="Installation worker returned no result.",
+                )
+            )
+        else:
+            results.append(task_result.value)
+
+    return results
 
 
 def _emit_status(
@@ -392,3 +458,93 @@ def grant_manage_all_files(
         ],
         status_callback=status_callback,
     )
+
+
+def install_device(
+    plan: InstallationPlan,
+    *,
+    status_callback: StatusCallback = None,
+) -> InstallationResult:
+    """Uninstall, install, and configure one device without UI output."""
+
+    if plan.apk_path is None:
+        return InstallationResult(
+            device=plan.device,
+            status="skipped",
+            message="No matching APK found",
+        )
+
+    device = plan.device
+
+    def execute_step(arguments: list[str]) -> str | None:
+        result = run_adb_command(["-s", device.serial, *arguments])
+
+        if result.returncode != 0:
+            return command_failure_reason(result)
+
+        return None
+
+    try:
+        _emit_status(status_callback, "Checking installed application...")
+        if is_package_installed(device):
+            _emit_status(status_callback, "Uninstalling current application...")
+            error = execute_step(["uninstall", device.package_name])
+            if error:
+                return InstallationResult(
+                    device=device,
+                    status="failed",
+                    message=f"Uninstall failed: {error}",
+                )
+
+        # Preserve existing behavior: configuration failures do not
+        # prevent installation, but retain warnings in the result.
+        warnings: list[str] = []
+
+        settings = (
+            ("package_verifier_enable", "0"),
+            ("verifier_verify_adb_installs", "0"),
+            ("package_verifier_user_consent", "-1"),
+        )
+        _emit_status(status_callback, "Configuring install verification...")
+        for setting, value in settings:
+            error = execute_step(["shell", "settings", "put", "global", setting, value])
+            if error:
+                warnings.append(f"Could not configure {setting}: {error}")
+        _emit_status(status_callback, "Installing APK...")
+        error = execute_step(["install", "-r", str(plan.apk_path)])
+        if error:
+            return InstallationResult(
+                device=device,
+                status="failed",
+                message=f"APK installation failed: {error}",
+            )
+        _emit_status(status_callback, "Granting permissions...")
+        for permission in device.permissions:
+            error = execute_step(
+                [
+                    "shell",
+                    "pm",
+                    "grant",
+                    device.package_name,
+                    permission,
+                ]
+            )
+            if error:
+                return InstallationResult(
+                    device=device,
+                    status="failed",
+                    message=f"Permission {permission} failed: {error}",
+                )
+
+        return InstallationResult(
+            device=device,
+            status="success",
+            message="\n".join(warnings),
+        )
+
+    except Exception as error:
+        return InstallationResult(
+            device=device,
+            status="failed",
+            message=f"{type(error).__name__}: {error}",
+        )

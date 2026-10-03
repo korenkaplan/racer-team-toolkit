@@ -1,12 +1,29 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
+from queue import Empty, Queue
+
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TransferSpeedColumn,
+)
+from rich.text import Text
 
 from racer_team_toolkit.adb import get_connected_android_devices
 from racer_team_toolkit.config import (
     LOCAL_DUMP_DIR,
     AndroidDevice,
 )
+from racer_team_toolkit.multithreading.functions import TaskResult, run_tasks
 from racer_team_toolkit.reff_extractor.custom_naming import (
     apply_custom_flight_names,
+)
+from racer_team_toolkit.reff_extractor.extraction_dataclasses import (
+    DeviceExtractionResult,
 )
 from racer_team_toolkit.reff_extractor.grouping import (
     get_next_flight_number,
@@ -20,7 +37,12 @@ from racer_team_toolkit.reff_extractor.grouping_dataclasses import (
 from racer_team_toolkit.reff_extractor.time_adjustment_functions import (
     validate_device_times_before_extraction,
 )
-from racer_team_toolkit.reff_extractor.transfer import get_transfer_verb, process_device
+from racer_team_toolkit.reff_extractor.transfer import (
+    QueuedTransferProgress,
+    TransferEvent,
+    get_transfer_verb,
+    process_device,
+)
 from racer_team_toolkit.ui.functions import (
     console,
     print_extraction_summary,
@@ -39,6 +61,158 @@ def extract_reff_and_videos() -> None:
     """Extract REFF files and screen videos from connected devices."""
 
     run_extraction(include_videos=True)
+
+
+def extract_devices_concurrently(
+    devices: list[AndroidDevice],
+    *,
+    include_videos: bool,
+) -> list[TaskResult[AndroidDevice, DeviceExtractionResult]]:
+    """Extract per device while main thread renders shared progress."""
+
+    if not devices:
+        return []
+
+    events: Queue[TransferEvent] = Queue()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("{task.fields[device]}"),
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        console=console,
+        auto_refresh=False,
+        transient=False,
+    ) as progress:
+        task_ids = {}
+
+        for device in devices:
+            reff_task = progress.add_task(
+                "REFF: Waiting",
+                device=Text(device.name),
+                total=None,
+                start=False,
+            )
+
+            video_task = None
+
+            if include_videos:
+                video_task = progress.add_task(
+                    "Videos: Waiting",
+                    device=Text(device.name),
+                    total=None,
+                    start=False,
+                )
+
+            task_ids[device.serial] = (reff_task, video_task)
+
+        def worker(device: AndroidDevice) -> DeviceExtractionResult:
+            queued_progress = QueuedTransferProgress(events, device.name)
+            reff_task, video_task = task_ids[device.serial]
+
+            queued_progress.update(
+                reff_task,
+                description="REFF: Scanning files",
+            )
+
+            try:
+                result = process_device(
+                    device,
+                    include_videos=include_videos,
+                    progress=queued_progress,
+                    reff_task_id=reff_task,
+                    video_task_id=video_task,
+                    status_callback=queued_progress.print,
+                )
+            except Exception:
+                for task_id in (reff_task, video_task):
+                    if task_id is not None:
+                        queued_progress.update(
+                            task_id,
+                            description="Extraction failed",
+                            worker_finished=True,
+                        )
+                raise
+
+            queued_progress.update(
+                reff_task,
+                description=f"REFF: Finished — {result.reff_files} files finalized",
+                worker_finished=True,
+            )
+
+            if video_task is not None:
+                queued_progress.update(
+                    video_task,
+                    description=f"Videos: Finished — {result.videos} files finalized",
+                    worker_finished=True,
+                )
+
+            return result
+
+        def apply_event(event: TransferEvent) -> None:
+            if event.task_id is not None:
+                changes = dict(event.changes)
+                finished = changes.pop("worker_finished", False)
+
+                if not finished:
+                    progress.start_task(event.task_id)
+
+                progress.update(event.task_id, **changes)
+
+                if finished:
+                    progress.stop_task(event.task_id)
+
+            elif event.message is not None:
+                progress.console.print(Text(f"{event.device_name}: {event.message}"))
+
+        progress.refresh()
+
+        with ThreadPoolExecutor(max_workers=1) as coordinator:
+            future = coordinator.submit(
+                run_tasks,
+                devices,
+                worker,
+                max_workers=len(devices),
+            )
+
+            while True:
+                try:
+                    event = events.get(timeout=0.1)
+                except Empty:
+                    progress.refresh()
+
+                    if future.done():
+                        # Workers have stopped producing events.
+                        # Drain any updates queued just before completion.
+                        while True:
+                            try:
+                                event = events.get_nowait()
+                            except Empty:
+                                break
+
+                            apply_event(event)
+
+                        progress.refresh()
+                        break
+
+                    continue
+
+                apply_event(event)
+
+                while True:
+                    try:
+                        event = events.get_nowait()
+                    except Empty:
+                        break
+
+                    apply_event(event)
+
+                progress.refresh()
+
+            return future.result()
 
 
 def run_extraction(*, include_videos: bool) -> None:
@@ -75,17 +249,48 @@ def run_extraction(*, include_videos: bool) -> None:
 
     starting_flight_number = get_next_flight_number()
 
-    for device in devices_to_process:
-        result = process_device(
-            device,
-            include_videos=include_videos,
-        )
+    task_results = extract_devices_concurrently(
+        devices_to_process,
+        include_videos=include_videos,
+    )
+
+    worker_failed = False
+
+    for task_result in task_results:
+        if task_result.error is not None:
+            worker_failed = True
+            console.print(
+                Text(
+                    f"✗ {task_result.item.name}: "
+                    f"{type(task_result.error).__name__}: {task_result.error}",
+                    style="red",
+                )
+            )
+            continue
+
+        result = task_result.value
+
+        if result is None:
+            worker_failed = True
+            console.print(
+                Text(
+                    f"✗ {task_result.item.name}: Worker returned no result.",
+                    style="red",
+                )
+            )
+            continue
 
         copied_reff_files += result.reff_files
         copied_videos += result.videos
-
         processed_any = True
 
+    if worker_failed:
+        console.print(
+            "[yellow]Extraction encountered a worker error. "
+            "Downloaded files remain in the dump folder; "
+            "grouping was not started.[/yellow]"
+        )
+        return
     if processed_any:
         reff_grouping_result = group_files_into_flights(
             starting_flight_number=starting_flight_number,
