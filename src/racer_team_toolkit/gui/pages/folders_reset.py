@@ -15,7 +15,11 @@ from PySide6.QtWidgets import (
 )
 
 from racer_team_toolkit.adb.functions import get_connected_android_devices
-from racer_team_toolkit.config import VIDEO_REMOTE_PATH, AndroidDevice
+from racer_team_toolkit.config import (
+    REFF_REMOTE_PATHS,
+    VIDEO_REMOTE_PATHS,
+    AndroidDevice,
+)
 from racer_team_toolkit.quick_reset.functions import (
     build_reset_plan_counts,
     reset_remote_folder,
@@ -82,21 +86,23 @@ class ResetApplyWorker(QObject):
             )
 
             if "reff" in folders:
-                steps.append(
+                steps.extend(
                     (
                         device,
                         "REFF",
-                        device.remote_log_path,
+                        remote_path,
                     )
+                    for remote_path in REFF_REMOTE_PATHS
                 )
 
             if "videos" in folders:
-                steps.append(
+                steps.extend(
                     (
                         device,
                         "Screen Videos",
-                        VIDEO_REMOTE_PATH,
+                        remote_path,
                     )
+                    for remote_path in VIDEO_REMOTE_PATHS
                 )
 
         all_successful = True
@@ -548,7 +554,14 @@ class FoldersResetPage(QWidget):
         self.review_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
 
-        steps = sum(len(folders) for folders in reset_plan.values())
+        steps = 0
+
+        for folders in reset_plan.values():
+            if "reff" in folders:
+                steps += len(REFF_REMOTE_PATHS)
+
+            if "videos" in folders:
+                steps += len(VIDEO_REMOTE_PATHS)
 
         self.progress.setRange(
             0,

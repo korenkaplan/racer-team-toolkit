@@ -8,7 +8,11 @@ from racer_team_toolkit.adb import (
     get_connected_android_devices,
     run_adb_command,
 )
-from racer_team_toolkit.config import VIDEO_REMOTE_PATH, AndroidDevice
+from racer_team_toolkit.config import (
+    REFF_REMOTE_PATHS,
+    VIDEO_REMOTE_PATHS,
+    AndroidDevice,
+)
 from racer_team_toolkit.ui.functions import run_with_spinner
 
 console = Console()
@@ -135,15 +139,21 @@ def build_reset_plan_counts(
         }
 
         if "reff" in selected_folders:
-            device_counts["reff"] = count_remote_files(
-                device,
-                device.remote_log_path,
+            device_counts["reff"] = sum(
+                count_remote_files(
+                    device,
+                    remote_path,
+                )
+                for remote_path in REFF_REMOTE_PATHS
             )
 
         if "videos" in selected_folders:
-            device_counts["videos"] = count_remote_files(
-                device,
-                VIDEO_REMOTE_PATH,
+            device_counts["videos"] = sum(
+                count_remote_files(
+                    device,
+                    remote_path,
+                )
+                for remote_path in VIDEO_REMOTE_PATHS
             )
 
         counts[device.serial] = device_counts
@@ -213,7 +223,25 @@ def reset_remote_folder(
     device: AndroidDevice,
     remote_path: str,
 ) -> bool:
-    """Delete all contents of a remote Android folder."""
+    """Delete all contents of a remote Android folder.
+
+    Missing source folders are treated as already empty because different
+    Android versions may create different recording paths.
+    """
+
+    exists_result = run_adb_command(
+        [
+            "-s",
+            device.serial,
+            "shell",
+            "test",
+            "-d",
+            remote_path,
+        ]
+    )
+
+    if exists_result.returncode != 0:
+        return True
 
     result = run_adb_command(
         [
@@ -251,32 +279,34 @@ def apply_reset_plan(
         console.rule(f"[bold]{device.name}[/bold]")
 
         if "reff" in selected_folders:
-            success = run_with_spinner(
-                f"Resetting REFF on {device.name}...",
-                reset_remote_folder,
-                device,
-                device.remote_log_path,
-            )
+            for remote_path in REFF_REMOTE_PATHS:
+                success = run_with_spinner(
+                    f"Resetting REFF on {device.name}...",
+                    reset_remote_folder,
+                    device,
+                    remote_path,
+                )
 
-            if success:
-                console.print("[green]✓[/green] REFF folder reset")
-            else:
-                console.print("[red]✗[/red] Failed to reset REFF folder")
-                all_successful = False
+                if success:
+                    console.print(f"[green]✓[/green] REFF folder reset: {remote_path}")
+                else:
+                    console.print(f"[red]✗[/red] Failed to reset REFF folder: {remote_path}")
+                    all_successful = False
 
         if "videos" in selected_folders:
-            success = run_with_spinner(
-                f"Resetting Screen Videos on {device.name}...",
-                reset_remote_folder,
-                device,
-                VIDEO_REMOTE_PATH,
-            )
+            for remote_path in VIDEO_REMOTE_PATHS:
+                success = run_with_spinner(
+                    f"Resetting Screen Videos on {device.name}...",
+                    reset_remote_folder,
+                    device,
+                    remote_path,
+                )
 
-            if success:
-                console.print("[green]✓[/green] Screen Videos folder reset")
-            else:
-                console.print("[red]✗[/red] Failed to reset Screen Videos folder")
-                all_successful = False
+                if success:
+                    console.print(f"[green]✓[/green] Video folder reset: {remote_path}")
+                else:
+                    console.print(f"[red]✗[/red] Failed to reset video folder: {remote_path}")
+                    all_successful = False
 
     return all_successful
 

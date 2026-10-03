@@ -208,8 +208,7 @@ class ExtractionWorker(QObject):
 
         try:
             create_output_directory()
-            next_flight_number = get_next_flight_number()
-
+            starting_flight_number = get_next_flight_number()
             copied_reff_files = 0
             copied_videos = 0
             flights: list[Flight] = []
@@ -239,7 +238,7 @@ class ExtractionWorker(QObject):
             self.status.emit("Grouping REFF files into flights...")
 
             reff_grouping_result = group_files_into_flights(
-                starting_flight_number=next_flight_number,
+                starting_flight_number=starting_flight_number,
             )
 
             flights = reff_grouping_result.flights
@@ -794,7 +793,7 @@ class ReffExtractorPage(QWidget):
 
         self._append_log("")
         self._append_log("Extraction Summary")
-        self._append_log(f"Flight folders created: {len(flights)}")
+        self._append_log(f"Flight folders in dump: {len(flights)}")
         self._append_log(f"REFF files {transfer_verb}: {result['copied_reff_files']}")
 
         if include_videos:

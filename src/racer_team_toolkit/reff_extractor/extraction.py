@@ -43,8 +43,6 @@ def run_extraction(*, include_videos: bool) -> None:
 
     create_output_directory()
 
-    next_flight_number = get_next_flight_number()
-
     connected_devices = get_connected_android_devices()
 
     if not connected_devices:
@@ -72,6 +70,8 @@ def run_extraction(*, include_videos: bool) -> None:
     flights: list[Flight] = []
     warnings: list[GroupingWarning] = []
 
+    starting_flight_number = get_next_flight_number()
+
     for device in devices_to_process:
         result = process_device(
             device,
@@ -85,7 +85,7 @@ def run_extraction(*, include_videos: bool) -> None:
 
     if processed_any:
         reff_grouping_result = group_files_into_flights(
-            starting_flight_number=next_flight_number,
+            starting_flight_number=starting_flight_number,
         )
 
         flights = reff_grouping_result.flights
@@ -143,7 +143,7 @@ def print_extraction_result(
             )
 
         summary: dict[str, int] = {
-            "Flight folders created": len(flights),
+            "Flight folders in dump": len(flights),
             f"REFF files {get_transfer_verb().lower()}": copied_reff_files,
         }
 

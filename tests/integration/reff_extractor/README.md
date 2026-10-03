@@ -75,13 +75,15 @@ Case 09 intentionally leaves this visible state before creating the next flight:
 ```text
 1 = Flight_01
 2 = Flight_02
-3 = standalone REFF
-4 = standalone video
-5 = next created flight
+3 = existing standalone REFF
+standalone video = not counted
+4 = next created flight
 ```
 
 The final visible result must contain `Flight_01`, `Flight_02`, the standalone
-REFF/video, and `Flight_05`.
+REFF/video, and `Flight_04`. Capture the starting number before pulling new
+files; carry it through REFF and video grouping without counting incoming REFFs
+again. An empty DUMP receiving one REFF and a matching video starts at `Flight_01`.
 
 The case folder also contains `NUMBERING_MAP.txt`.
 

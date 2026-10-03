@@ -6,7 +6,12 @@ import questionary
 from rich.table import Table
 
 from racer_team_toolkit.adb import run_adb_command
-from racer_team_toolkit.config import MAX_DEVICE_TIME_DIFF_SECONDS, VIDEO_REMOTE_PATH, AndroidDevice
+from racer_team_toolkit.config import (
+    MAX_DEVICE_TIME_DIFF_SECONDS,
+    REFF_REMOTE_PATHS,
+    VIDEO_REMOTE_PATHS,
+    AndroidDevice,
+)
 from racer_team_toolkit.reff_extractor.time_adjustment_dataclasses import (
     DeviceTimeInfo,
     FileTimeCorrection,
@@ -504,17 +509,23 @@ def build_device_file_corrections(
 ) -> tuple[list[FileTimeCorrection], int, int]:
     """Build REFF and video corrections for one incorrect device."""
 
-    device = device_info.device
+    reff_files = [
+        file_path
+        for remote_path in REFF_REMOTE_PATHS
+        for file_path in get_remote_files_from_wrong_date(
+            device_info,
+            remote_path,
+        )
+    ]
 
-    reff_files = get_remote_files_from_wrong_date(
-        device_info,
-        device.remote_log_path,
-    )
-
-    video_files = get_remote_files_from_wrong_date(
-        device_info,
-        VIDEO_REMOTE_PATH,
-    )
+    video_files = [
+        file_path
+        for remote_path in VIDEO_REMOTE_PATHS
+        for file_path in get_remote_files_from_wrong_date(
+            device_info,
+            remote_path,
+        )
+    ]
 
     files_to_adjust = reff_files + video_files
 

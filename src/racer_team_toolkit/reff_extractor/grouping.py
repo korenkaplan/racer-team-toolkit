@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 from datetime import datetime
 
@@ -27,33 +28,106 @@ MAX_REFF_AFTER_VIDEO_SECONDS = 8 * 60
 
 
 def group_files_into_flights(
-    starting_flight_number: int,
+    starting_flight_number: int | None = None,
 ) -> ReffGroupingResult:
-    """Group compatible REFF files and return grouped and standalone results."""
+    """Group REFF files, preferring existing flight folders first.
+
+    Existing Flight_* folders are authoritative and are never renamed.
+    Every top-level REFF is reconsidered on every run, including files left
+    standalone by previous extractions.
+
+    Callers capture starting_flight_number before extracting new files, so
+    existing standalone REFFs count but incoming REFFs are not counted twice.
+    Without a snapshot, continue after the highest existing folder number.
+    """
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
         return ReffGroupingResult(
             flights=[],
             standalone_reffs=[],
-            next_flight_number=starting_flight_number,
+            next_flight_number=1,
         )
 
-    files = collect_reff_files()
+    existing_flights = load_existing_flights()
+    standalone_files = collect_reff_files()
+    standalone_files.sort(key=lambda file_info: file_info.mtime)
 
-    if not files:
-        return ReffGroupingResult(
-            flights=[],
-            standalone_reffs=[],
-            next_flight_number=starting_flight_number,
+    unmatched_files: list[FlightFile] = []
+
+    # Priority 1: existing Flight_* folders.
+    for file_info in standalone_files:
+        matched_flight = find_best_existing_flight_for_reff(
+            file_info,
+            existing_flights,
         )
 
-    files.sort(key=lambda file_info: file_info.mtime)
+        if matched_flight is None:
+            unmatched_files.append(file_info)
+            continue
+
+        if not attach_reff_to_flight(
+            matched_flight,
+            file_info,
+        ):
+            unmatched_files.append(file_info)
+
+    # Priority 2: remaining standalone REFF files.
+    groups, remaining_standalone = plan_standalone_reff_groups(
+        unmatched_files,
+    )
+
+    # New folders continue from the highest assigned Flight_* number.
+    highest_existing_number = get_highest_flight_folder_number()
+    flight_number = max(starting_flight_number or 1, highest_existing_number + 1)
+
+    created_flights: list[Flight] = []
+
+    for selected_files in groups:
+        flight_name, flight_dir = create_flight_directory(
+            flight_number,
+            selected_files[0].mtime,
+        )
+
+        move_flight_files(
+            flight_dir,
+            selected_files,
+        )
+
+        created_flights.append(
+            Flight(
+                number=flight_number,
+                name=flight_name,
+                path=flight_dir,
+                reff_files=selected_files,
+            )
+        )
+
+        flight_number += 1
+
+    flights = [*existing_flights, *created_flights]
+
+    return ReffGroupingResult(
+        flights=flights,
+        standalone_reffs=remaining_standalone,
+        # Carry the pre-extraction snapshot through to video grouping without
+        # counting REFFs that may be consumed by their matching videos.
+        next_flight_number=max(flight_number, get_highest_flight_folder_number() + 1),
+    )
+
+
+def plan_standalone_reff_groups(
+    files: list[FlightFile],
+) -> tuple[list[list[FlightFile]], list[FlightFile]]:
+    """Plan new flight groups from top-level REFF files without moving them."""
+
+    files = sorted(
+        files,
+        key=lambda file_info: file_info.mtime,
+    )
 
     used_indexes: set[int] = set()
+    groups: list[list[FlightFile]] = []
     standalone_reffs: list[FlightFile] = []
-    flights: list[Flight] = []
-
-    flight_number = starting_flight_number
 
     for index in range(len(files)):
         if index in used_indexes:
@@ -70,34 +144,216 @@ def group_files_into_flights(
             used_indexes.add(index)
             continue
 
-        flight_name, flight_dir = create_flight_directory(
-            flight_number,
-            selected_files[0].mtime,
-        )
-
-        move_flight_files(
-            flight_dir,
-            selected_files,
-        )
-
+        groups.append(selected_files)
         used_indexes.update(selected_indexes)
+
+    return groups, standalone_reffs
+
+
+def load_existing_flights() -> list[Flight]:
+    """Reconstruct existing Flight_* folders from files already on disk."""
+
+    if not os.path.isdir(LOCAL_DUMP_DIR):
+        return []
+
+    flights: list[Flight] = []
+
+    for name in os.listdir(LOCAL_DUMP_DIR):
+        flight_number = get_flight_number_from_name(name)
+
+        if flight_number is None:
+            continue
+
+        flight_path = os.path.join(
+            LOCAL_DUMP_DIR,
+            name,
+        )
+
+        if not os.path.isdir(flight_path):
+            continue
+
+        reff_files: list[FlightFile] = []
+        videos: list[FlightFile] = []
+
+        for filename in os.listdir(flight_path):
+            file_path = os.path.join(
+                flight_path,
+                filename,
+            )
+
+            if not os.path.isfile(file_path):
+                continue
+
+            try:
+                if filename.lower().endswith(".reff"):
+                    device_type = get_device_type_from_filename(filename)
+
+                    if device_type is not None:
+                        reff_files.append(
+                            FlightFile(
+                                filename=filename,
+                                path=file_path,
+                                device_type=device_type,
+                                file_type=FlightFileType.REFF,
+                                mtime=os.path.getmtime(file_path),
+                                size=os.path.getsize(file_path),
+                            )
+                        )
+
+                elif filename.upper().startswith(f"{VIDEO_FILE_PREFIX}_"):
+                    device_type = get_video_device_type(filename)
+
+                    if device_type is not None:
+                        videos.append(
+                            FlightFile(
+                                filename=filename,
+                                path=file_path,
+                                device_type=device_type,
+                                file_type=FlightFileType.VIDEO,
+                                mtime=os.path.getmtime(file_path),
+                                size=os.path.getsize(file_path),
+                            )
+                        )
+
+            except OSError:
+                continue
+
+        reff_files.sort(key=lambda file_info: file_info.mtime)
+        videos.sort(key=lambda file_info: file_info.mtime)
 
         flights.append(
             Flight(
                 number=flight_number,
-                name=flight_name,
-                path=flight_dir,
-                reff_files=selected_files,
+                name=name,
+                path=flight_path,
+                reff_files=reff_files,
+                videos=videos,
             )
         )
 
-        flight_number += 1
+    flights.sort(key=lambda flight: flight.number)
+    return flights
 
-    return ReffGroupingResult(
-        flights=flights,
-        standalone_reffs=standalone_reffs,
-        next_flight_number=flight_number,
+
+def get_flight_number_from_name(name: str) -> int | None:
+    """Return the numeric Flight_XX prefix from a flight-folder name."""
+
+    match = re.match(
+        r"^Flight_(\d+)(?:_|$)",
+        name,
+        re.IGNORECASE,
     )
+
+    if match is None:
+        return None
+
+    return int(match.group(1))
+
+
+def get_highest_flight_folder_number() -> int:
+    """Return the highest number already assigned to a Flight_* folder."""
+
+    if not os.path.isdir(LOCAL_DUMP_DIR):
+        return 0
+
+    numbers: list[int] = []
+
+    for name in os.listdir(LOCAL_DUMP_DIR):
+        path = os.path.join(
+            LOCAL_DUMP_DIR,
+            name,
+        )
+
+        if not os.path.isdir(path):
+            continue
+
+        number = get_flight_number_from_name(name)
+
+        if number is not None:
+            numbers.append(number)
+
+    return max(numbers, default=0)
+
+
+def find_best_existing_flight_for_reff(
+    reff: FlightFile,
+    flights: list[Flight],
+) -> Flight | None:
+    """Return the best existing flight allowed by the REFF grouping rules."""
+
+    matches: list[tuple[int, float, Flight]] = []
+
+    for flight in flights:
+        if not flight.reff_files:
+            continue
+
+        # Only one REFF from each device type may belong to one flight.
+        if any(existing.device_type == reff.device_type for existing in flight.reff_files):
+            continue
+
+        proposed_files = [*flight.reff_files, reff]
+
+        if not flight_is_within_time_limit(proposed_files):
+            continue
+
+        base_file = min(
+            flight.reff_files,
+            key=lambda file_info: file_info.mtime,
+        )
+
+        matches.append(
+            (
+                0
+                if same_clock_minute(
+                    reff.mtime,
+                    base_file.mtime,
+                )
+                else 1,
+                abs(reff.mtime - base_file.mtime),
+                flight,
+            )
+        )
+
+    if not matches:
+        return None
+
+    return min(
+        matches,
+        key=lambda match: (
+            match[0],
+            match[1],
+        ),
+    )[2]
+
+
+def attach_reff_to_flight(
+    flight: Flight,
+    reff: FlightFile,
+) -> bool:
+    """Move one top-level REFF into an existing flight folder."""
+
+    destination = os.path.join(
+        flight.path,
+        reff.filename,
+    )
+
+    if os.path.exists(destination):
+        return False
+
+    try:
+        shutil.move(
+            reff.path,
+            destination,
+        )
+
+        reff.path = destination
+        flight.reff_files.append(reff)
+        flight.reff_files.sort(key=lambda file_info: file_info.mtime)
+        return True
+
+    except OSError as error:
+        print(f"[!] Failed to move REFF file {reff.filename}: {error}")
+        return False
 
 
 def group_videos_into_flights(
@@ -433,36 +689,16 @@ def flight_is_within_time_limit(
 
 
 def get_next_flight_number() -> int:
-    """Return the next number based only on existing flight folders."""
+    """Capture the next number BEFORE extraction, counting existing standalone REFFs.
+
+    Do not call this between REFF and video grouping: incoming REFFs may still
+    join a folder and must not reserve their own additional flight number.
+    """
 
     if not os.path.isdir(LOCAL_DUMP_DIR):
         return 1
 
-    flight_numbers: list[int] = []
-
-    for name in os.listdir(LOCAL_DUMP_DIR):
-        path = os.path.join(
-            LOCAL_DUMP_DIR,
-            name,
-        )
-
-        if not os.path.isdir(path) or not name.startswith("Flight_"):
-            continue
-
-        parts = name.split("_", 2)
-
-        if len(parts) < 2:
-            continue
-
-        try:
-            flight_numbers.append(int(parts[1]))
-        except ValueError:
-            continue
-
-    if not flight_numbers:
-        return 1
-
-    return max(flight_numbers) + 1
+    return get_highest_flight_folder_number() + len(collect_reff_files()) + 1
 
 
 def create_flight_directory(flight_number: int, first_file_mtime: float) -> tuple[str, str]:

@@ -54,8 +54,19 @@ standard_desktop = home / "Desktop"
 VIDEO_FILE_PREFIX = "VIDEO"
 DESKTOP_PATH = onedrive_desktop if onedrive_desktop.exists() else standard_desktop
 LOCAL_DUMP_DIR = str(DESKTOP_PATH / f"Reff_{today_str}")
-VIDEO_REMOTE_PATH = "/sdcard/Eyesatop-Records/Videos/Full-Screen"
-REMOTE_REFF_PATH = "/sdcard/Eyesatop-Records/Manual-Records"
+REFF_REMOTE_PATHS = (
+    "/sdcard/Eyesatop-Records/Manual-Records",
+    "/sdcard/Records",
+)
+VIDEO_REMOTE_PATHS = (
+    "/sdcard/Eyesatop-Records/Videos/Full-Screen",
+    "/sdcard/Eyesatop-Records/Videos/Camera-Only",
+    "/sdcard/Eyesatop-Records/Screen-Videos",
+)
+
+# Keep primary-path aliases for existing device configuration and integrations.
+REMOTE_REFF_PATH = REFF_REMOTE_PATHS[0]
+VIDEO_REMOTE_PATH = VIDEO_REMOTE_PATHS[0]
 DEVICE_MODEL_RULES = {
     "ISR": ("rcpad",),
     "RACER": ("djircplus",),
@@ -135,9 +146,11 @@ __all__ = [
     "MAX_FLIGHT_TIME_DIFF",
     "MAX_VIDEO_TIME_DIFF",
     "PROJECT_STATUS",
+    "REFF_REMOTE_PATHS",
     "SUPPORTED_DEVICE_TYPES",
     "TOOL_MENU_CHOICES",
     "VIDEO_REMOTE_PATH",
+    "VIDEO_REMOTE_PATHS",
     "DEVICE_MODEL_RULES",
     "VIDEO_FILE_PREFIX",
 ]
