@@ -1,4 +1,5 @@
 import re
+import shlex
 from datetime import date, datetime
 from pathlib import PurePosixPath
 
@@ -239,19 +240,11 @@ def get_remote_file_timestamp(
     device: AndroidDevice,
     file_path: str,
 ) -> int | None:
-    """Return a remote file modification timestamp as Unix seconds."""
+    """Return remote mtime, preserving spaces and special characters."""
 
-    result = run_adb_command(
-        [
-            "-s",
-            device.serial,
-            "shell",
-            "stat",
-            "-c",
-            "%Y",
-            file_path,
-        ]
-    )
+    command = shlex.join(["stat", "-c", "%Y", file_path])
+
+    result = run_adb_command(["-s", device.serial, "shell", command])
 
     if result.returncode != 0:
         return None

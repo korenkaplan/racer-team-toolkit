@@ -54,6 +54,8 @@ standard_desktop = home / "Desktop"
 VIDEO_FILE_PREFIX = "VIDEO"
 DESKTOP_PATH = onedrive_desktop if onedrive_desktop.exists() else standard_desktop
 LOCAL_DUMP_DIR = str(DESKTOP_PATH / f"Reff_{today_str}")
+MIN_REFF_FILE_SIZE_BYTES = 500_000
+MIN_VIDEO_FILE_SIZE_BYTES = 3_000_000
 REFF_REMOTE_PATHS = (
     "/sdcard/Eyesatop-Records/Manual-Records",
     "/sdcard/Records",
@@ -153,4 +155,6 @@ __all__ = [
     "VIDEO_REMOTE_PATHS",
     "DEVICE_MODEL_RULES",
     "VIDEO_FILE_PREFIX",
+    "MIN_REFF_FILE_SIZE_BYTES",
+    "MIN_VIDEO_FILE_SIZE_BYTES",
 ]
