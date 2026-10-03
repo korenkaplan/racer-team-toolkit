@@ -32,7 +32,7 @@ def run_with_spinner(
         return function(*args, **kwargs)
 
 
-def select_menu(message: str, choices: list[str]) -> str | None:
+def create_menu(message: str, choices: list[str]) -> questionary.Question:
     """Display a styled menu of choices."""
 
     custom_style = questionary.Style(
@@ -53,7 +53,13 @@ def select_menu(message: str, choices: list[str]) -> str | None:
         style=custom_style,
         pointer="❯",
         instruction="(↑/↓ navigate • Enter select)",
-    ).ask()
+    )
+
+
+def select_menu(message: str, choices: list[str]) -> str | None:
+    """Display a styled menu of choices."""
+
+    return create_menu(message, choices).ask()
 
 
 def select_menu_tuple(message: str, choices: list[str]) -> tuple[int, str]:
