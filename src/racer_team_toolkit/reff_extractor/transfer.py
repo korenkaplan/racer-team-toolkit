@@ -1,4 +1,5 @@
 import os
+import shlex
 import shutil
 import subprocess
 import time
@@ -22,10 +23,15 @@ from racer_team_toolkit.adb import (
 )
 from racer_team_toolkit.config import (
     LOCAL_DUMP_DIR,
+    MIN_REFF_FILE_SIZE_BYTES,
+    MIN_VIDEO_FILE_SIZE_BYTES,
     PROJECT_STATUS,
     REFF_REMOTE_PATHS,
     VIDEO_REMOTE_PATHS,
     AndroidDevice,
+)
+from racer_team_toolkit.reff_extractor.custom_naming import (
+    flag_custom_recording_filename,
 )
 from racer_team_toolkit.reff_extractor.extraction_dataclasses import (
     DeviceExtractionResult,
@@ -34,9 +40,6 @@ from racer_team_toolkit.reff_extractor.time_adjustment_functions import (
     get_remote_files_from_today,
 )
 from racer_team_toolkit.ui.functions import console
-
-MIN_REFF_FILE_SIZE_BYTES = 500_000
-MIN_VIDEO_FILE_SIZE_BYTES = 5_000_000
 
 TransferStatusCallback = Callable[[str], None] | None
 
@@ -345,26 +348,17 @@ def get_remote_file_size(
     device: AndroidDevice,
     remote_file: str,
 ) -> int | None:
-    """Return the size of a remote Android file in bytes."""
+    """Return remote size, preserving spaces and special characters."""
 
-    result = run_adb_command(
-        [
-            "-s",
-            device.serial,
-            "shell",
-            "stat",
-            "-c",
-            "%s",
-            remote_file,
-        ]
-    )
+    command = shlex.join(["stat", "-c", "%s", remote_file])
+
+    result = run_adb_command(["-s", device.serial, "shell", command])
 
     if result.returncode != 0:
         return None
 
     try:
         return int(result.stdout.strip())
-
     except ValueError:
         return None
 
@@ -433,7 +427,9 @@ def move_video_files(
                 filename,
             )
 
-            destination_name = f"VIDEO_{device.file_prefix}_{filename}"
+            flagged_filename = flag_custom_recording_filename(filename)
+
+            destination_name = f"VIDEO_{device.file_prefix}_{flagged_filename}"
 
             destination_path = os.path.join(
                 LOCAL_DUMP_DIR,
@@ -509,8 +505,10 @@ def move_record_files(
                 filename,
             )
 
+            flagged_filename = flag_custom_recording_filename(filename)
+
             prefixed_filename = add_device_prefix(
-                filename,
+                flagged_filename,
                 device.file_prefix,
             )
 

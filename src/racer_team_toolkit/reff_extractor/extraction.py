@@ -5,6 +5,9 @@ from racer_team_toolkit.config import (
     LOCAL_DUMP_DIR,
     AndroidDevice,
 )
+from racer_team_toolkit.reff_extractor.custom_naming import (
+    apply_custom_flight_names,
+)
 from racer_team_toolkit.reff_extractor.grouping import (
     get_next_flight_number,
     group_files_into_flights,
@@ -99,6 +102,8 @@ def run_extraction(*, include_videos: bool) -> None:
 
             flights = video_grouping_result.flights
             warnings = video_grouping_result.warnings
+
+        apply_custom_flight_names(flights)
 
     print_extraction_result(
         processed_any,
