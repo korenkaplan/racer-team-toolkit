@@ -219,7 +219,15 @@ def test_extraction_captures_number_before_pulling_new_recordings(
         extraction, "print_extraction_result", lambda *args: captured.update(args=args)
     )
 
-    def fake_process_device(device, *, include_videos):
+    def fake_process_device(
+        device,
+        *,
+        include_videos,
+        status_callback=None,
+        progress=None,
+        reff_task_id=None,
+        video_task_id=None,
+    ):
         write_file(tmp_path / "RACER_current.reff", mtime=base_time)
         partner = "VIDEO_RACER_current.mp4" if include_videos else "ISR_current.reff"
         write_file(tmp_path / partner, mtime=base_time + 20)

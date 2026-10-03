@@ -2,9 +2,12 @@ import os
 import shlex
 import shutil
 import subprocess
+import tempfile
 import time
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Callable
+from queue import Queue
+from typing import Any, Callable
 
 from rich.progress import (
     BarColumn,
@@ -44,6 +47,48 @@ from racer_team_toolkit.ui.functions import console
 TransferStatusCallback = Callable[[str], None] | None
 
 
+@dataclass(frozen=True)
+class TransferEvent:
+    """Progress update or message sent from a device worker."""
+
+    device_name: str
+    task_id: TaskID | None = None
+    changes: dict[str, Any] = field(default_factory=dict)
+    message: str | None = None
+
+
+class QueuedTransferProgress:
+    """Forward worker progress updates without touching the terminal."""
+
+    def __init__(
+        self,
+        events: Queue[TransferEvent],
+        device_name: str,
+    ) -> None:
+        self.events = events
+        self.device_name = device_name
+
+        # Support existing progress.console.print(...) calls.
+        self.console = self
+
+    def update(self, task_id: TaskID, **changes: Any) -> None:
+        self.events.put(
+            TransferEvent(
+                device_name=self.device_name,
+                task_id=task_id,
+                changes=changes,
+            )
+        )
+
+    def print(self, message: str) -> None:
+        self.events.put(
+            TransferEvent(
+                device_name=self.device_name,
+                message=message,
+            )
+        )
+
+
 def get_remote_files_from_today_from_paths(
     device: AndroidDevice,
     remote_paths: tuple[str, ...],
@@ -67,15 +112,38 @@ def _emit_status(
     callback: TransferStatusCallback,
     message: str,
 ) -> None:
-    """Emit a transfer status message when a callback is provided."""
+    """Emit routine status for callback consumers outside queued CLI progress."""
 
-    if callback is not None:
-        callback(message)
+    if callback is None:
+        return
+
+    # Queued CLI progress already displays file-transfer status in its rows.
+    if isinstance(
+        getattr(callback, "__self__", None),
+        QueuedTransferProgress,
+    ):
+        return
+
+    callback(message)
+
+
+def report_transfer_message(
+    message: str,
+    *,
+    status_callback: TransferStatusCallback = None,
+    style: str | None = None,
+) -> None:
+    """Send worker messages through callback or print during sequential use."""
+
+    if status_callback is not None:
+        status_callback(message)
+    else:
+        console.print(message, style=style, markup=False)
 
 
 def pull_reff_files(
     device: AndroidDevice,
-    progress: Progress,
+    progress: Progress | QueuedTransferProgress,
     task_id: TaskID,
     *,
     status_callback: TransferStatusCallback = None,
@@ -100,8 +168,11 @@ def pull_reff_files(
     total_reff_bytes = sum(reff_file_sizes.values())
 
     if not reff_files:
-        progress.console.print("[dim]  REFF: No files found[/dim]")
-        _emit_status(status_callback, "REFF: No files found")
+        report_transfer_message(
+            "REFF: No files found",
+            status_callback=status_callback,
+            style="dim",
+        )
         return 0
 
     progress.update(
@@ -112,14 +183,9 @@ def pull_reff_files(
         visible=True,
     )
 
-    records_dir = os.path.join(
-        LOCAL_DUMP_DIR,
-        "Records",
-    )
-
-    os.makedirs(
-        records_dir,
-        exist_ok=True,
+    records_dir = tempfile.mkdtemp(
+        prefix=f"Records_{device.file_prefix}_",
+        dir=LOCAL_DUMP_DIR,
     )
 
     successfully_pulled_files: list[str] = []
@@ -158,12 +224,13 @@ def pull_reff_files(
     finally:
         remove_temporary_directory(
             records_dir,
+            status_callback=status_callback,
         )
 
 
 def pull_videos(
     device: AndroidDevice,
-    progress: Progress,
+    progress: Progress | QueuedTransferProgress,
     task_id: TaskID,
     *,
     status_callback: TransferStatusCallback = None,
@@ -188,10 +255,12 @@ def pull_videos(
     total_video_bytes = sum(video_file_sizes.values())
 
     if not video_files:
-        progress.console.print("[dim]  Videos: No files found[/dim]")
-        _emit_status(status_callback, "Videos: No files found")
+        report_transfer_message(
+            "Videos: No files found",
+            status_callback=status_callback,
+            style="dim",
+        )
         return 0
-
     progress.update(
         task_id,
         total=total_video_bytes,
@@ -200,14 +269,9 @@ def pull_videos(
         visible=True,
     )
 
-    videos_dir = os.path.join(
-        LOCAL_DUMP_DIR,
-        "Screen-Videos",
-    )
-
-    os.makedirs(
-        videos_dir,
-        exist_ok=True,
+    videos_dir = tempfile.mkdtemp(
+        prefix=f"Screen-Videos_{device.file_prefix}_",
+        dir=LOCAL_DUMP_DIR,
     )
 
     successfully_pulled_files: list[str] = []
@@ -248,6 +312,7 @@ def pull_videos(
     finally:
         remove_temporary_directory(
             videos_dir,
+            status_callback=status_callback,
         )
 
 
@@ -255,7 +320,7 @@ def pull_remote_file(
     device: AndroidDevice,
     remote_file: str,
     local_directory: str,
-    progress: Progress,
+    progress: Progress | QueuedTransferProgress,
     task_id: TaskID,
     description: str,
     *,
@@ -322,17 +387,17 @@ def pull_remote_file(
         if os.path.exists(local_file):
             os.remove(local_file)
 
-        console.print(f"[red]✗ Failed to transfer {local_filename}[/red]")
-        _emit_status(
-            status_callback,
+        report_transfer_message(
             f"✗ Failed to transfer {local_filename}",
+            status_callback=status_callback,
+            style="red",
         )
 
         if error.strip():
-            console.print(f"[red]{error.strip()}[/red]")
-            _emit_status(
-                status_callback,
+            report_transfer_message(
                 error.strip(),
+                status_callback=status_callback,
+                style="red",
             )
 
         return False
@@ -389,10 +454,10 @@ def filter_remote_files_by_size(
                 f"{file_size / 1_000_000:.1f} MB "
                 f"(minimum {minimum_size_bytes / 1_000_000:.1f} MB)"
             )
-            console.print(f"[yellow]{message}[/yellow]")
-            _emit_status(
-                status_callback,
+            report_transfer_message(
                 f"⚠ {message}",
+                status_callback=status_callback,
+                style="yellow",
             )
             continue
 
@@ -458,13 +523,10 @@ def move_video_files(
                         remote_file,
                         status_callback=status_callback,
                     ):
-                        console.print(
-                            "[yellow]Video copied locally but remote delete failed: "
-                            f"{filename}[/yellow]"
-                        )
-                        _emit_status(
-                            status_callback,
+                        report_transfer_message(
                             f"⚠ Video copied locally but remote delete failed: {filename}",
+                            status_callback=status_callback,
+                            style="yellow",
                         )
                         continue
 
@@ -474,8 +536,11 @@ def move_video_files(
                 copied_count += 1
 
             except OSError as error:
-                print(f"[!] Failed to move a screen video: {error}")
-
+                report_transfer_message(
+                    f"✗ Failed to move a screen video: {error}",
+                    status_callback=status_callback,
+                    style="red",
+                )
     return copied_count
 
 
@@ -539,13 +604,10 @@ def move_record_files(
                         remote_file,
                         status_callback=status_callback,
                     ):
-                        console.print(
-                            "[yellow]REFF copied locally but remote delete failed: "
-                            f"{filename}[/yellow]"
-                        )
-                        _emit_status(
-                            status_callback,
+                        report_transfer_message(
                             f"⚠ REFF copied locally but remote delete failed: {filename}",
+                            status_callback=status_callback,
+                            style="yellow",
                         )
                         continue
 
@@ -553,10 +615,12 @@ def move_record_files(
                     os.remove(source_path)
 
                 copied_count += 1
-
             except OSError as error:
-                print(f"[!] Failed to move a REFF file: {error}")
-
+                report_transfer_message(
+                    f"✗ Failed to move a REFF file: {error}",
+                    status_callback=status_callback,
+                    style="red",
+                )
     return copied_count
 
 
@@ -629,8 +693,10 @@ def add_device_prefix(filename: str, file_prefix: str) -> str:
 
 def remove_temporary_directory(
     directory: str,
+    *,
+    status_callback: TransferStatusCallback = None,
 ) -> None:
-    """Remove staging directory if it contains no real files."""
+    """Remove staging directory only when no real files remain."""
 
     if not os.path.isdir(directory):
         return
@@ -642,28 +708,32 @@ def remove_temporary_directory(
             if filename.startswith("."):
                 continue
 
-            real_files.append(
-                os.path.join(
-                    root,
-                    filename,
-                )
-            )
+            real_files.append(os.path.join(root, filename))
 
     if real_files:
-        console.print(
-            "[yellow]Temporary folder was not removed because real files still remain:[/yellow]"
+        report_transfer_message(
+            "Temporary folder was not removed because real files still remain:",
+            status_callback=status_callback,
+            style="yellow",
         )
 
         for file_path in real_files:
-            console.print(f"[yellow]  {file_path}[/yellow]")
+            report_transfer_message(
+                f"  {file_path}",
+                status_callback=status_callback,
+                style="yellow",
+            )
 
         return
 
     try:
         shutil.rmtree(directory)
-
     except OSError as error:
-        console.print(f"[yellow]Could not remove temporary folder {directory}: {error}[/yellow]")
+        report_transfer_message(
+            f"Could not remove temporary folder {directory}: {error}",
+            status_callback=status_callback,
+            style="yellow",
+        )
 
 
 def get_transfer_verb() -> str:
@@ -677,8 +747,27 @@ def process_device(
     *,
     include_videos: bool = True,
     status_callback: TransferStatusCallback = None,
+    progress: Progress | QueuedTransferProgress | None = None,
+    reff_task_id: TaskID | None = None,
+    video_task_id: TaskID | None = None,
 ) -> DeviceExtractionResult:
-    """Pull REFF files from one device and optionally pull its videos."""
+    """Pull one device's files using local or externally managed progress."""
+
+    if progress is not None:
+        if reff_task_id is None:
+            raise ValueError("REFF progress task is required")
+
+        if include_videos and video_task_id is None:
+            raise ValueError("Video progress task is required")
+
+        return pull_device_files(
+            device,
+            progress,
+            reff_task_id,
+            video_task_id,
+            include_videos=include_videos,
+            status_callback=status_callback,
+        )
 
     print(f"\n[--->] Starting {get_transfer_verb().lower()} from: {device.name}")
     _emit_status(
@@ -694,41 +783,70 @@ def process_device(
         DownloadColumn(),
         TransferSpeedColumn(),
         transient=False,
-    ) as progress:
-        reff_task_id = progress.add_task(
+    ) as local_progress:
+        local_reff_task = local_progress.add_task(
             f"REFF: {get_transfer_verb()} 0 of 0 files",
             total=0,
             visible=False,
         )
 
-        reff_files = pull_reff_files(
-            device,
-            progress,
-            reff_task_id,
-            status_callback=status_callback,
-        )
-
-        videos = 0
+        local_video_task = None
 
         if include_videos:
-            video_task_id = progress.add_task(
+            local_video_task = local_progress.add_task(
                 f"Videos: {get_transfer_verb()} 0 of 0 files",
                 total=0,
                 visible=False,
             )
 
-            videos = pull_videos(
-                device,
-                progress,
-                video_task_id,
-                status_callback=status_callback,
-            )
+        result = pull_device_files(
+            device,
+            local_progress,
+            local_reff_task,
+            local_video_task,
+            include_videos=include_videos,
+            status_callback=status_callback,
+        )
 
     print(f"[<---] Finished {get_transfer_verb().lower()} from: {device.name}")
     _emit_status(
         status_callback,
         f"✓ Finished {get_transfer_verb().lower()} from {device.name}",
     )
+
+    return result
+
+
+def pull_device_files(
+    device: AndroidDevice,
+    progress: Progress | QueuedTransferProgress,
+    reff_task_id: TaskID,
+    video_task_id: TaskID | None,
+    *,
+    include_videos: bool,
+    status_callback: TransferStatusCallback = None,
+) -> DeviceExtractionResult:
+    """Pull REFFs, then videos, sequentially for one device."""
+
+    reff_files = pull_reff_files(
+        device,
+        progress,
+        reff_task_id,
+        status_callback=status_callback,
+    )
+
+    videos = 0
+
+    if include_videos:
+        if video_task_id is None:
+            raise ValueError("Video progress task is required")
+
+        videos = pull_videos(
+            device,
+            progress,
+            video_task_id,
+            status_callback=status_callback,
+        )
 
     return DeviceExtractionResult(
         reff_files=reff_files,
