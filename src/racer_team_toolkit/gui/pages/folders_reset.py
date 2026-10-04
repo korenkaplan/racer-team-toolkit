@@ -1,28 +1,34 @@
 """PySide6 Folders Reset page."""
 
-from PySide6.QtCore import QObject, QThread, Signal
+from queue import Empty, Queue
+
+from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from racer_team_toolkit.adb.functions import get_connected_android_devices
 from racer_team_toolkit.config import (
-    REFF_REMOTE_PATHS,
-    VIDEO_REMOTE_PATHS,
     AndroidDevice,
 )
 from racer_team_toolkit.quick_reset.functions import (
+    ResetUpdate,
     build_reset_plan_counts,
-    reset_remote_folder,
+    reset_devices,
+    reset_steps,
 )
 
 
@@ -61,7 +67,6 @@ class ResetApplyWorker(QObject):
     """Delete selected remote folder contents."""
 
     status = Signal(str)
-    progress = Signal(int, int)
     finished = Signal(bool)
     failed = Signal(str)
 
@@ -73,67 +78,17 @@ class ResetApplyWorker(QObject):
         super().__init__()
         self.devices = devices
         self.reset_plan = reset_plan
+        self.updates: Queue[ResetUpdate] = Queue()
 
     def run(self) -> None:
         """Apply the reset plan."""
 
-        steps: list[tuple[AndroidDevice, str, str]] = []
-
-        for device in self.devices:
-            folders = self.reset_plan.get(
-                device.serial,
-                set(),
-            )
-
-            if "reff" in folders:
-                steps.extend(
-                    (
-                        device,
-                        "REFF",
-                        remote_path,
-                    )
-                    for remote_path in REFF_REMOTE_PATHS
-                )
-
-            if "videos" in folders:
-                steps.extend(
-                    (
-                        device,
-                        "Screen Videos",
-                        remote_path,
-                    )
-                    for remote_path in VIDEO_REMOTE_PATHS
-                )
-
-        all_successful = True
-        total = len(steps)
-
         try:
-            for index, (
-                device,
-                label,
-                remote_path,
-            ) in enumerate(steps, start=1):
-                self.status.emit(f"Resetting {label} on {device.name}...")
-
-                success = reset_remote_folder(
-                    device,
-                    remote_path,
-                )
-
-                if success:
-                    self.status.emit(f"✓ {device.name}: {label} folder reset")
-                else:
-                    all_successful = False
-                    self.status.emit(f"✗ {device.name}: failed to reset {label}")
-
-                self.progress.emit(
-                    index,
-                    total,
-                )
-
-            self.finished.emit(all_successful)
-
+            results = reset_devices(self.devices, self.reset_plan, status_callback=self.updates.put)
+            for result in results:
+                for error in result.errors:
+                    self.status.emit(f"✗ {result.device.name}: {error}")
+            self.finished.emit(all(result.succeeded for result in results))
         except Exception as error:
             self.failed.emit(str(error))
 
@@ -157,6 +112,12 @@ class FoldersResetPage(QWidget):
         self.apply_thread: QThread | None = None
         self.apply_worker: ResetApplyWorker | None = None
 
+        self._status_rows: dict[str, int] = {}
+        self._completed_steps: dict[str, int] = {}
+        self._reset_total = 0
+        self._status_timer = QTimer(self)
+        self._status_timer.setInterval(50)
+        self._status_timer.timeout.connect(self._drain_status_updates)
         self._initial_load_done = False
 
         self._build_ui()
@@ -227,7 +188,7 @@ class FoldersResetPage(QWidget):
         self.device_list_layout = QVBoxLayout()
         self.device_list_layout.setSpacing(8)
 
-        quick_button = QPushButton("Quick Reset: Select Everything")
+        quick_button = self.quick_button = QPushButton("Quick Reset: Select Everything")
         quick_button.setObjectName("secondaryButton")
         quick_button.clicked.connect(self._select_everything)
 
@@ -282,6 +243,14 @@ class FoldersResetPage(QWidget):
 
         review_layout.addWidget(review_title)
         review_layout.addWidget(self.plan_summary)
+        self.status_table = QTableWidget(0, 5)
+        self.status_table.setHorizontalHeaderLabels(
+            ["Device", "REFF", "Screen Videos", "Progress", "Status"]
+        )
+        self.status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.status_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.status_table.verticalHeader().setVisible(False)
+        review_layout.addWidget(self.status_table)
         review_layout.addWidget(self.log, stretch=1)
         review_layout.addWidget(self.progress)
         review_layout.addWidget(self.review_button)
@@ -554,19 +523,28 @@ class FoldersResetPage(QWidget):
         self.review_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
 
-        steps = 0
-
-        for folders in reset_plan.values():
-            if "reff" in folders:
-                steps += len(REFF_REMOTE_PATHS)
-
-            if "videos" in folders:
-                steps += len(VIDEO_REMOTE_PATHS)
-
-        self.progress.setRange(
-            0,
-            max(steps, 1),
-        )
+        self.quick_button.setEnabled(False)
+        for row in self.device_rows.values():
+            for checkbox in row:
+                checkbox.setEnabled(False)
+        self._status_rows = {device.serial: index for index, device in enumerate(selected_devices)}
+        self._completed_steps = {device.serial: 0 for device in selected_devices}
+        self._reset_total = sum(len(reset_steps(reset_plan[d.serial])) for d in selected_devices)
+        self.status_table.setRowCount(len(selected_devices))
+        for device in selected_devices:
+            folders = reset_plan[device.serial]
+            values = [
+                device.name,
+                "Waiting" if "reff" in folders else "-",
+                "Waiting" if "videos" in folders else "-",
+                f"0/{len(reset_steps(folders))}",
+                "Waiting",
+            ]
+            for column, value in enumerate(values):
+                self.status_table.setItem(
+                    self._status_rows[device.serial], column, QTableWidgetItem(value)
+                )
+        self.progress.setRange(0, max(self._reset_total, 1))
         self.progress.setValue(0)
 
         self._append_log("")
@@ -581,31 +559,40 @@ class FoldersResetPage(QWidget):
 
         self.apply_thread.started.connect(self.apply_worker.run)
         self.apply_worker.status.connect(self._append_log)
-        self.apply_worker.progress.connect(self._update_progress)
         self.apply_worker.finished.connect(self._reset_finished)
         self.apply_worker.failed.connect(self._reset_failed)
         self.apply_worker.finished.connect(self.apply_thread.quit)
         self.apply_worker.failed.connect(self.apply_thread.quit)
         self.apply_thread.finished.connect(self._cleanup_apply_thread)
 
+        self._status_timer.start()
         self.apply_thread.start()
 
-    def _update_progress(
-        self,
-        completed: int,
-        total: int,
-    ) -> None:
-        """Update reset operation progress."""
+    @Slot()
+    def _drain_status_updates(self) -> None:
+        if self.apply_worker is None:
+            return
+        while True:
+            try:
+                event = self.apply_worker.updates.get_nowait()
+            except Empty:
+                break
+            self._update_device_status(event)
 
-        self.progress.setRange(
-            0,
-            max(total, 1),
-        )
-        self.progress.setValue(completed)
+    def _update_device_status(self, event: ResetUpdate) -> None:
+        """The GUI timer drains worker events on the main thread."""
+        row = self._status_rows[event.serial]
+        column = {"REFF": 1, "Screen Videos": 2}[event.folder]
+        self.status_table.setItem(row, column, QTableWidgetItem(event.message))
+        self.status_table.setItem(row, 3, QTableWidgetItem(f"{event.completed}/{event.total}"))
+        self.status_table.setItem(row, 4, QTableWidgetItem(event.status))
+        self._completed_steps[event.serial] = event.completed
+        self.progress.setValue(sum(self._completed_steps.values()))
 
     def _reset_finished(self, success: bool) -> None:
         """Display final reset result."""
 
+        self._drain_status_updates()
         self._append_log("")
 
         if success:
@@ -627,8 +614,11 @@ class FoldersResetPage(QWidget):
     def _cleanup_apply_thread(self) -> None:
         """Release reset worker references."""
 
+        self._drain_status_updates()
+        self._status_timer.stop()
         self.apply_worker = None
         self.apply_thread = None
+        self.quick_button.setEnabled(True)
         self.review_button.setEnabled(True)
         self.refresh_button.setEnabled(True)
         self.refresh_devices()

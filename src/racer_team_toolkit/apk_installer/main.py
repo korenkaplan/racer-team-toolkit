@@ -1,8 +1,6 @@
 """Interactive APK installer flow."""
 
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from queue import Empty, Queue
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
@@ -20,6 +18,7 @@ from racer_team_toolkit.config import (
     APK_INSTALLER_APPROVAL_CHOICES,
     APK_INSTALLER_HEADER,
 )
+from racer_team_toolkit.multithreading.updates import run_with_updates
 from racer_team_toolkit.ui.functions import (
     console,
     pause,
@@ -79,11 +78,6 @@ def install_with_progress(
     if not plan:
         return []
 
-    updates: Queue[tuple[str, str]] = Queue()
-
-    def report(serial: str, message: str) -> None:
-        updates.put((serial, message))
-
     with Progress(
         SpinnerColumn(),
         TextColumn("{task.fields[device]}"),
@@ -129,35 +123,13 @@ def install_with_progress(
 
         progress.refresh()
 
-        with ThreadPoolExecutor(max_workers=1) as coordinator:
-            future = coordinator.submit(
-                install_devices,
-                plan,
-                status_callback=report,
-            )
-
-            while True:
-                try:
-                    serial, message = updates.get(timeout=0.1)
-                except Empty:
-                    progress.refresh()
-                    if future.done():
-                        break
-                    continue
-
-                apply_update(serial, message)
-
-                while True:
-                    try:
-                        serial, message = updates.get_nowait()
-                    except Empty:
-                        break
-
-                    apply_update(serial, message)
-
-                progress.refresh()
-
-            return future.result()
+        return run_with_updates(
+            lambda report: install_devices(
+                plan, status_callback=lambda serial, message: report((serial, message))
+            ),
+            lambda update: apply_update(*update),
+            progress.refresh,
+        )
 
 
 def print_installation_plan(plan: list[InstallationPlan]) -> None:
