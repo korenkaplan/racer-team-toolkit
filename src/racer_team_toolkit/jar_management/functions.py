@@ -1,6 +1,8 @@
 """SSH and JAR management functions."""
 
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Callable
 
 import paramiko
@@ -467,6 +469,7 @@ def upload_jar_file(
     local_jar_path: Path,
     *,
     progress_callback: TransferProgressCallback = None,
+    show_progress: bool = True,
 ) -> bool:
     """Upload the selected Groundlord JAR with transfer progress."""
 
@@ -474,6 +477,9 @@ def upload_jar_file(
 
     try:
         with ssh.open_sftp() as sftp:
+            if not show_progress:
+                sftp.put(str(local_jar_path), remote_jar_path, callback=progress_callback)
+                return True
             with Progress(
                 "[progress.description]{task.description}",
                 BarColumn(),
@@ -592,6 +598,8 @@ def upload_jar() -> bool:
 
 def upload_selected_jar(
     local_jar_path: Path,
+    *,
+    show_progress: bool = True,
 ) -> bool:
     """Upload a preselected Groundlord JAR and restart the Java processes."""
 
@@ -599,11 +607,17 @@ def upload_selected_jar(
         console.print(f"[red]✗[/red] JAR file does not exist: {local_jar_path}")
         return False
 
-    with Status(
-        "Checking server connection...",
-        console=console,
-        spinner="dots",
-    ) as status:
+    status_context = (
+        Status(
+            "Checking server connection...",
+            console=console,
+            spinner="dots",
+        )
+        if show_progress
+        else nullcontext(SimpleNamespace(update=lambda message: console.print(message)))
+    )
+
+    with status_context as status:
         if not is_ssh_server_reachable():
             console.print(f"[red]✗[/red] Server is not reachable at {SSH_HOST}:{SSH_PORT}.")
             return False
@@ -635,6 +649,7 @@ def upload_selected_jar(
             if not upload_jar_file(
                 ssh,
                 local_jar_path,
+                show_progress=show_progress,
             ):
                 return False
 
