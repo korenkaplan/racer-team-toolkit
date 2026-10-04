@@ -1,7 +1,12 @@
 """Quick Reset functions."""
 
+from collections.abc import Callable
+from dataclasses import dataclass
+from shlex import quote
+
 import questionary
 from rich.console import Console
+from rich.live import Live
 from rich.table import Table
 
 from racer_team_toolkit.adb import (
@@ -13,7 +18,10 @@ from racer_team_toolkit.config import (
     VIDEO_REMOTE_PATHS,
     AndroidDevice,
 )
+from racer_team_toolkit.multithreading.functions import run_tasks
+from racer_team_toolkit.multithreading.updates import run_with_updates
 from racer_team_toolkit.ui.functions import run_with_spinner
+from racer_team_toolkit.ui.status_table import DeviceStatusTable
 
 console = Console()
 
@@ -229,86 +237,146 @@ def reset_remote_folder(
     Android versions may create different recording paths.
     """
 
-    exists_result = run_adb_command(
-        [
-            "-s",
-            device.serial,
-            "shell",
-            "test",
-            "-d",
-            remote_path,
-        ]
-    )
-
-    if exists_result.returncode != 0:
-        return True
-
+    path = quote(remote_path)
     result = run_adb_command(
         [
             "-s",
             device.serial,
             "shell",
-            "find",
-            remote_path,
-            "-mindepth",
-            "1",
-            "-delete",
+            f"if [ -d {path} ]; then find {path} -mindepth 1 -delete; else exit 0; fi",
         ]
     )
-
     return result.returncode == 0
+
+
+@dataclass(frozen=True)
+class ResetUpdate:
+    serial: str
+    folder: str
+    message: str
+    completed: int
+    total: int
+    status: str
+
+
+@dataclass(frozen=True)
+class ResetResult:
+    device: AndroidDevice
+    errors: tuple[str, ...]
+
+    @property
+    def succeeded(self) -> bool:
+        return not self.errors
+
+
+def reset_steps(folders: set[str]) -> list[tuple[str, str]]:
+    """Use one stable folder order in CLI and GUI."""
+    return [
+        (label, path)
+        for key, label, paths in (
+            ("reff", "REFF", REFF_REMOTE_PATHS),
+            ("videos", "Screen Videos", VIDEO_REMOTE_PATHS),
+        )
+        if key in folders
+        for path in dict.fromkeys(paths)
+    ]
+
+
+def reset_devices(
+    devices: list[AndroidDevice],
+    reset_plan: dict[str, set[str]],
+    *,
+    status_callback: Callable[[ResetUpdate], None] | None = None,
+) -> list[ResetResult]:
+    """One worker per selected device; wait for every worker before returning.
+
+    Paths within a device stay sequential. Workers only emit events, never UI.
+    A failed path does not prevent the remaining paths or devices from running.
+    """
+    selected = [d for d in devices if reset_steps(reset_plan.get(d.serial, set()))]
+    if not selected:
+        return []
+
+    def worker(device: AndroidDevice) -> ResetResult:
+        steps = reset_steps(reset_plan[device.serial])
+        errors: list[str] = []
+        failed_folders: set[str] = set()
+
+        def report(folder: str, message: str, completed: int, status: str) -> None:
+            if status_callback is not None:
+                status_callback(
+                    ResetUpdate(device.serial, folder, message, completed, len(steps), status)
+                )
+
+        for index, (label, path) in enumerate(steps):
+            report(label, f"Resetting {path}", index, "Running")
+            try:
+                success = reset_remote_folder(device, path)
+                detail = "Reset command failed"
+            except Exception as error:
+                success = False
+                detail = f"{type(error).__name__}: {error}"
+            if not success:
+                errors.append(f"{path}: {detail}")
+                failed_folders.add(label)
+            last_in_folder = index + 1 == len(steps) or steps[index + 1][0] != label
+            message = (
+                ("Failed" if label in failed_folders else "Done") if last_in_folder else "Running"
+            )
+            status = ("Failed" if errors else "Done") if index + 1 == len(steps) else "Running"
+            report(label, message, index + 1, status)
+        return ResetResult(device, tuple(errors))
+
+    results = run_tasks(selected, worker, max_workers=len(selected))
+    return [
+        result.value
+        if result.succeeded and result.value is not None
+        else ResetResult(result.item, (str(result.error or "Worker returned no result"),))
+        for result in results
+    ]
 
 
 def apply_reset_plan(
     devices: list[AndroidDevice],
     reset_plan: dict[str, set[str]],
 ) -> bool:
-    """Apply the selected folder reset plan."""
-
-    all_successful = True
-
-    for device in devices:
-        selected_folders = reset_plan.get(
+    """Render live statuses on the calling thread until every device finishes."""
+    selected = [d for d in devices if reset_steps(reset_plan.get(d.serial, set()))]
+    table = DeviceStatusTable(
+        "Folder Reset Status",
+        {d.serial: d.name for d in selected},
+        ["REFF", "Screen Videos", "Progress", "Status"],
+    )
+    for device in selected:
+        cells = {label: "Waiting" for label, _ in reset_steps(reset_plan[device.serial])}
+        table.update(
             device.serial,
-            set(),
+            **cells,
+            Progress="0/" + str(len(reset_steps(reset_plan[device.serial]))),
+            Status="Waiting",
         )
+    with Live(table.render(), console=console, auto_refresh=False) as live:
 
-        if not selected_folders:
-            continue
+        def update(event: ResetUpdate) -> None:
+            table.update(
+                event.serial,
+                **{event.folder: event.message},
+                Progress=f"{event.completed}/{event.total}",
+                Status=event.status,
+            )
 
-        console.rule(f"[bold]{device.name}[/bold]")
-
-        if "reff" in selected_folders:
-            for remote_path in REFF_REMOTE_PATHS:
-                success = run_with_spinner(
-                    f"Resetting REFF on {device.name}...",
-                    reset_remote_folder,
-                    device,
-                    remote_path,
-                )
-
-                if success:
-                    console.print(f"[green]✓[/green] REFF folder reset: {remote_path}")
-                else:
-                    console.print(f"[red]✗[/red] Failed to reset REFF folder: {remote_path}")
-                    all_successful = False
-
-        if "videos" in selected_folders:
-            for remote_path in VIDEO_REMOTE_PATHS:
-                success = run_with_spinner(
-                    f"Resetting Screen Videos on {device.name}...",
-                    reset_remote_folder,
-                    device,
-                    remote_path,
-                )
-
-                if success:
-                    console.print(f"[green]✓[/green] Video folder reset: {remote_path}")
-                else:
-                    console.print(f"[red]✗[/red] Failed to reset video folder: {remote_path}")
-                    all_successful = False
-
-    return all_successful
+        results = run_with_updates(
+            lambda report: reset_devices(selected, reset_plan, status_callback=report),
+            update,
+            lambda: live.update(table.render(), refresh=True),
+        )
+        for result in results:
+            table.update(result.device.serial, Status="Done" if result.succeeded else "Failed")
+        live.update(table.render(), refresh=True)
+    for result in results:
+        for error in result.errors:
+            console.print(f"{result.device.name}: {error}", style="red", markup=False)
+    return all(result.succeeded for result in results)
 
 
 def confirm_reset() -> bool:
