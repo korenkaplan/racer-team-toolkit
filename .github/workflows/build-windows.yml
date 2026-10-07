@@ -1,4 +1,4 @@
-name: Build Windows CLI and GUI EXEs
+name: Build Windows and macOS CLI and GUI
 
 on:
   push:
@@ -127,3 +127,8 @@ jobs:
           name: racer-team-toolkit-gui-windows
           path: dist/racer-team-toolkit-gui.exe
           if-no-files-found: error
+
+  build-macos:
+    uses: ./.github/workflows/build-macos.yml
+    secrets:
+      SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
