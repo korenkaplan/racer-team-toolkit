@@ -54,8 +54,8 @@ jobs:
         run: |
           test -x dist/racer-team-toolkit
           test -x dist/racer-team-toolkit-gui.app/Contents/MacOS/racer-team-toolkit-gui
-          lipo -verify_arch "$BUILD_ARCH" dist/racer-team-toolkit
-          lipo -verify_arch "$BUILD_ARCH" dist/racer-team-toolkit-gui.app/Contents/MacOS/racer-team-toolkit-gui
+          lipo dist/racer-team-toolkit -verify_arch "$BUILD_ARCH"
+          lipo dist/racer-team-toolkit-gui.app/Contents/MacOS/racer-team-toolkit-gui -verify_arch "$BUILD_ARCH"
           mkdir -p packages
           tar -czf "packages/racer-team-toolkit-cli-macos-$BUILD_ARCH.tar.gz" -C dist racer-team-toolkit
           ditto -c -k --sequesterRsrc --keepParent dist/racer-team-toolkit-gui.app "packages/racer-team-toolkit-gui-macos-$BUILD_ARCH.zip"
