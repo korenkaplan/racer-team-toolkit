@@ -48,7 +48,7 @@ def test_updates_overlap_and_fail_independently(tmp_path, monkeypatch, apk_faile
     apk_started, jar_started = Event(), Event()
     apk_result = InstallationResult(device, "failed" if apk_failed else "success")
 
-    def install(*_):
+    def install(*_, **__):
         apk_started.set()
         assert jar_started.wait(2), "JAR must start before APK finishes"
         return [apk_result]

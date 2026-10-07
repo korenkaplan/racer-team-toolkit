@@ -1,5 +1,6 @@
 """Reusable operations for the full release update flow."""
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from racer_team_toolkit.apk_installer.functions import (
     build_installation_plan,
     contains_apk_files,
     get_folders_in_downloads,
+    install_devices,
 )
 from racer_team_toolkit.apk_installer.main import install_with_progress
 from racer_team_toolkit.config import AndroidDevice
@@ -26,6 +28,11 @@ from racer_team_toolkit.ui.functions import (
     print_error,
     select_menu,
     select_menu_tuple,
+)
+from racer_team_toolkit.ui.operation_progress import (
+    OperationUpdate,
+    apk_status_update,
+    run_with_operation_table,
 )
 
 
@@ -156,16 +163,22 @@ def skip_jar_upload(plan: ReleaseUpdatePlan) -> None:
 def run_apk_updates(
     plan: ReleaseUpdatePlan,
     console,
+    *,
+    status_callback: Callable[[str, str], None] | None = None,
 ) -> list[InstallationResult]:
     """Install APKs concurrently with per-device Rich progress."""
 
     if not plan.install_apk:
         return []
 
+    if status_callback is not None:
+        return install_devices(plan.apk_plan, status_callback=status_callback)
     return install_with_progress(plan.apk_plan)
 
 
-def run_jar_update(plan: ReleaseUpdatePlan) -> bool | None:
+def run_jar_update(
+    plan: ReleaseUpdatePlan, *, status_callback: Callable[[str], None] | None = None
+) -> bool | None:
     """Run the existing JAR upload flow for the preselected JAR."""
 
     if not plan.ronen_connected or not plan.upload_jar:
@@ -175,9 +188,14 @@ def run_jar_update(plan: ReleaseUpdatePlan) -> bool | None:
         return False
 
     try:
-        return upload_selected_jar(plan.jar_file, show_progress=False)
+        return upload_selected_jar(
+            plan.jar_file, show_progress=False, status_callback=status_callback
+        )
     except Exception as error:
-        print_error(f"JAR update failed: {error}")
+        if status_callback is not None:
+            status_callback(f"JAR update failed: {error}")
+        else:
+            print_error(f"JAR update failed: {error}")
         return False
 
 
@@ -498,20 +516,58 @@ def execute_release_update(
 ) -> None:
     """Run independent JAR and APK updates concurrently, then report both."""
 
-    console.print()
-    console.rule("[bold]APK and JAR Updates[/bold]")
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        jar_future = executor.submit(run_jar_update, plan)
-        try:
-            apk_results = run_apk_updates(plan, console)
-        except Exception as error:
-            apk_results = [
-                InstallationResult(item.device, "failed", str(error))
-                for item in plan.apk_plan
-                if item.apk_path is not None
-            ]
-        jar_result = jar_future.result()
+    targets = [
+        (f"apk:{item.device.serial}", "APK", item.device.name)
+        for item in plan.apk_plan
+        if plan.install_apk
+    ]
+    jar_active = plan.ronen_connected and plan.upload_jar
+    if jar_active:
+        targets.append(("jar", "JAR", "Racer Groundlord"))
 
+    def operation(report):
+        def jar_worker():
+            if not jar_active:
+                return None
+            report(OperationUpdate("jar", "Checking server connection"))
+            result = run_jar_update(
+                plan, status_callback=lambda message: report(OperationUpdate("jar", message))
+            )
+            report(
+                OperationUpdate(
+                    "jar", "Completed" if result else "Failed", "success" if result else "failed"
+                )
+            )
+            return result
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            jar_future = executor.submit(jar_worker)
+            try:
+                apk_results = run_apk_updates(
+                    plan,
+                    console,
+                    status_callback=lambda serial, message: report(
+                        apk_status_update(serial, message)
+                    ),
+                )
+            except Exception as error:
+                apk_results = [
+                    InstallationResult(item.device, "failed", str(error))
+                    for item in plan.apk_plan
+                    if plan.install_apk
+                ]
+                for result in apk_results:
+                    report(
+                        OperationUpdate(
+                            f"apk:{result.device.serial}", f"Failed: {result.message}", "failed"
+                        )
+                    )
+            jar_result = jar_future.result()
+        return apk_results, jar_result
+
+    apk_results, jar_result = run_with_operation_table(
+        "APK and JAR Updates", targets, operation, console
+    )
     print_release_update_results(plan, apk_results, jar_result)
 
 

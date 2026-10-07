@@ -1,6 +1,7 @@
 """Reusable SSH operations."""
 
 import socket
+from collections.abc import Callable
 
 import paramiko
 
@@ -35,11 +36,15 @@ def connect_to_server(
     port: int = SSH_PORT,
     username: str = SSH_USERNAME,
     password: str | None = SSH_PASSWORD,
+    *,
+    status_callback: Callable[[str], None] | None = None,
 ) -> paramiko.SSHClient | None:
     """Connect to an SSH server."""
 
+    report = status_callback or print
+
     if not password:
-        print("[!] SSH_PASSWORD is missing from the .env file.")
+        report("[!] SSH_PASSWORD is missing from the .env file.")
         return None
 
     ssh = paramiko.SSHClient()
@@ -57,7 +62,7 @@ def connect_to_server(
         )
 
     except paramiko.AuthenticationException:
-        print("[!] SSH authentication failed.")
+        report("[!] SSH authentication failed.")
         return None
 
     except (
@@ -65,7 +70,7 @@ def connect_to_server(
         socket.timeout,
         OSError,
     ) as error:
-        print(f"[!] SSH connection failed: {error}")
+        report(f"[!] SSH connection failed: {error}")
         return None
 
     return ssh

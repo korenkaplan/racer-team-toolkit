@@ -15,6 +15,7 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 from rich.status import Status
+from rich.text import Text
 
 from racer_team_toolkit.jar_management.config import (
     CAMERA_MODE_COMMANDS,
@@ -39,10 +40,22 @@ from racer_team_toolkit.ui.functions import select_menu
 
 console = Console()
 
+StatusCallback = Callable[[str], None] | None
+
+
+def _report(message: str, callback: StatusCallback = None) -> None:
+    if callback is not None:
+        callback(message)
+    else:
+        console.print(Text(message))
+
+
 TransferProgressCallback = Callable[[int, int], None] | None
 
 
-def stop_screen_sessions(ssh: paramiko.SSHClient) -> bool:
+def stop_screen_sessions(
+    ssh: paramiko.SSHClient, *, status_callback: StatusCallback = None
+) -> bool:
     """Stop all running screen sessions on the server."""
 
     exit_code, _, error = run_remote_command(
@@ -51,13 +64,15 @@ def stop_screen_sessions(ssh: paramiko.SSHClient) -> bool:
     )
 
     if exit_code not in (0, 1):
-        print(f"[!] Failed to stop screen sessions: {error}")
+        _report(f"[!] Failed to stop screen sessions: {error}", status_callback)
         return False
 
     return True
 
 
-def verify_screen_stopped(ssh: paramiko.SSHClient) -> bool:
+def verify_screen_stopped(
+    ssh: paramiko.SSHClient, *, status_callback: StatusCallback = None
+) -> bool:
     """Verify that no screen sessions are currently running."""
 
     _, output, error = run_remote_command(
@@ -71,19 +86,21 @@ def verify_screen_stopped(ssh: paramiko.SSHClient) -> bool:
         return True
 
     if "there is a screen on" in combined_output:
-        print("[!] A screen session is still running.")
+        _report("[!] A screen session is still running.", status_callback)
         return False
 
     if "there are screens on" in combined_output:
-        print("[!] Screen sessions are still running.")
+        _report("[!] Screen sessions are still running.", status_callback)
         return False
 
-    print(f"[!] Could not verify screen status:\n{combined_output.strip()}")
+    _report(f"[!] Could not verify screen status:\n{combined_output.strip()}", status_callback)
     return False
 
 
 def run_java_script(
     ssh: paramiko.SSHClient,
+    *,
+    status_callback: StatusCallback = None,
 ) -> tuple[bool, str]:
     """Start the Java processes using the server's run_java script."""
 
@@ -103,7 +120,7 @@ def run_java_script(
     combined_output = f"{output}\n{error}".strip()
 
     if exit_code != 0:
-        print(f"[!] Failed to run Java script:\n{combined_output}")
+        _report(f"[!] Failed to run Java script:\n{combined_output}", status_callback)
         return False, combined_output
 
     return True, combined_output
@@ -111,6 +128,8 @@ def run_java_script(
 
 def verify_groundlord_started(
     ssh: paramiko.SSHClient,
+    *,
+    status_callback: StatusCallback = None,
 ) -> bool:
     """Verify that racer-groundlord.jar is actually running."""
 
@@ -121,7 +140,7 @@ def verify_groundlord_started(
 
     if exit_code != 0:
         if error:
-            print(f"[!] Failed to check Racer Groundlord process: {error}")
+            _report(f"[!] Failed to check Racer Groundlord process: {error}", status_callback)
         return False
 
     return "racer-groundlord.jar" in output
@@ -470,6 +489,7 @@ def upload_jar_file(
     *,
     progress_callback: TransferProgressCallback = None,
     show_progress: bool = True,
+    status_callback: StatusCallback = None,
 ) -> bool:
     """Upload the selected Groundlord JAR with transfer progress."""
 
@@ -516,7 +536,7 @@ def upload_jar_file(
                 )
 
     except (OSError, paramiko.SSHException) as error:
-        console.print(f"[red]✗[/red] Failed to upload JAR: {error}")
+        _report(f"Failed to upload JAR: {error}", status_callback)
         return False
 
     return True
@@ -600,11 +620,27 @@ def upload_selected_jar(
     local_jar_path: Path,
     *,
     show_progress: bool = True,
+    status_callback: StatusCallback = None,
 ) -> bool:
     """Upload a preselected Groundlord JAR and restart the Java processes."""
 
+    # Callback mode never creates a renderer or writes to stdout from workers.
+    show_progress = show_progress and status_callback is None
+
+    def report(message: str) -> None:
+        _report(message, status_callback)
+
+    last_percent = -1
+
+    def transfer_progress(transferred: int, total: int) -> None:
+        nonlocal last_percent
+        percent = int(transferred * 100 / total) if total else 0
+        if percent != last_percent:
+            last_percent = percent
+            report(f"Uploading JAR: {percent}%")
+
     if not local_jar_path.is_file():
-        console.print(f"[red]✗[/red] JAR file does not exist: {local_jar_path}")
+        report(f"✗ JAR file does not exist: {local_jar_path}")
         return False
 
     status_context = (
@@ -614,63 +650,66 @@ def upload_selected_jar(
             spinner="dots",
         )
         if show_progress
-        else nullcontext(SimpleNamespace(update=lambda message: console.print(message)))
+        else nullcontext(SimpleNamespace(update=report))
     )
 
     with status_context as status:
         if not is_ssh_server_reachable():
-            console.print(f"[red]✗[/red] Server is not reachable at {SSH_HOST}:{SSH_PORT}.")
+            report(f"✗ Server is not reachable at {SSH_HOST}:{SSH_PORT}.")
             return False
 
-        console.print("[green]✓[/green] Server reachable")
+        report("✓ Server reachable")
 
         status.update("Connecting to server...")
 
-        ssh = connect_to_server()
+        ssh = connect_to_server(status_callback=report)
 
         if ssh is None:
             return False
 
-        console.print("[green]✓[/green] Connected to server")
+        report("✓ Connected to server")
 
         try:
             status.update("Stopping running JAR processes...")
 
-            if not stop_screen_sessions(ssh):
+            if not stop_screen_sessions(ssh, status_callback=report):
                 return False
 
-            if not verify_screen_stopped(ssh):
+            if not verify_screen_stopped(ssh, status_callback=report):
                 return False
 
-            console.print("[green]✓[/green] Existing processes stopped")
+            report("✓ Existing processes stopped")
 
-            console.print(f"\nSelected: [bold]{local_jar_path.name}[/bold]\n")
+            status.update(f"Uploading {local_jar_path.name}...")
 
             if not upload_jar_file(
                 ssh,
                 local_jar_path,
                 show_progress=show_progress,
+                progress_callback=transfer_progress if not show_progress else None,
+                status_callback=report,
             ):
                 return False
 
-            console.print("[green]✓[/green] JAR upload completed")
+            report("✓ JAR upload completed")
 
             status.update("Starting Java processes...")
 
-            success, _ = run_java_script(ssh)
+            success, message = run_java_script(ssh, status_callback=report)
 
             if not success:
+                report(f"Java startup failed: {message}")
                 return False
 
-            console.print("[green]✓[/green] Java startup command completed")
+            report("✓ Java startup command completed")
 
             status.update("Verifying Racer Groundlord...")
 
-            if not verify_groundlord_started(ssh):
-                console.print("[red]✗[/red] Racer Groundlord did not start successfully.")
+            if not verify_groundlord_started(ssh, status_callback=report):
+                report("✗ Racer Groundlord did not start successfully.")
                 return False
 
-            console.print("[green]✓[/green] Racer Groundlord is running")
+            report("✓ Racer Groundlord is running")
 
             return True
 

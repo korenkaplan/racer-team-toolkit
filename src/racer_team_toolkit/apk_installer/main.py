@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.text import Text
 
@@ -18,7 +17,6 @@ from racer_team_toolkit.config import (
     APK_INSTALLER_APPROVAL_CHOICES,
     APK_INSTALLER_HEADER,
 )
-from racer_team_toolkit.multithreading.updates import run_with_updates
 from racer_team_toolkit.ui.functions import (
     console,
     pause,
@@ -26,6 +24,7 @@ from racer_team_toolkit.ui.functions import (
     select_menu,
     select_menu_tuple,
 )
+from racer_team_toolkit.ui.operation_progress import apk_status_update, run_with_operation_table
 
 
 def main() -> None:
@@ -78,58 +77,14 @@ def install_with_progress(
     if not plan:
         return []
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("{task.fields[device]}"),
-        TextColumn("{task.description}"),
-        TimeElapsedColumn(),
-        console=console,
-        auto_refresh=False,
-        transient=True,
-    ) as progress:
-        task_ids = {
-            item.device.serial: progress.add_task(
-                "Waiting",
-                device=Text(item.device.name),
-                total=1,
-                start=False,
-            )
-            for item in plan
-        }
-
-        def apply_update(serial: str, message: str) -> None:
-            task_id = task_ids[serial]
-            message = message.removesuffix("...")
-            finished = message.startswith(("✓", "✗", "⚠"))
-
-            if message.startswith("✗"):
-                style = "red"
-            elif message.startswith("⚠") or "warnings" in message:
-                style = "yellow"
-            elif message.startswith("✓"):
-                style = "green"
-            else:
-                style = "cyan"
-
-            progress.start_task(task_id)
-            progress.update(
-                task_id,
-                description=Text(message, style=style),
-                completed=1 if finished else 0,
-            )
-
-            if finished:
-                progress.stop_task(task_id)
-
-        progress.refresh()
-
-        return run_with_updates(
-            lambda report: install_devices(
-                plan, status_callback=lambda serial, message: report((serial, message))
-            ),
-            lambda update: apply_update(*update),
-            progress.refresh,
-        )
+    return run_with_operation_table(
+        "APK Installation",
+        [(f"apk:{item.device.serial}", "APK", item.device.name) for item in plan],
+        lambda report: install_devices(
+            plan, status_callback=lambda serial, message: report(apk_status_update(serial, message))
+        ),
+        console,
+    )
 
 
 def print_installation_plan(plan: list[InstallationPlan]) -> None:
