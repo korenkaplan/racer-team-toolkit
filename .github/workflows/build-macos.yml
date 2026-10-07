@@ -1,0 +1,71 @@
+name: Build macOS CLI and GUI
+
+on:
+  workflow_call:
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Python and dependencies
+        run: |
+          uv python install 3.12
+          uv sync --locked
+      - name: Check code
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest
+      - name: Download Android Platform Tools
+        run: |
+          curl --fail --location --retry 3 https://dl.google.com/android/repository/platform-tools-latest-darwin.zip -o platform-tools.zip
+          unzip -q platform-tools.zip -d "$RUNNER_TEMP/android"
+          chmod +x "$RUNNER_TEMP/android/platform-tools/adb"
+          "$RUNNER_TEMP/android/platform-tools/adb" version
+      - name: Create production environment
+        run: printf 'RACER_TOOLKIT_STATUS=production\n' > .env
+      - name: Build CLI and GUI
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          uv run pyinstaller --noconfirm --clean --onefile \
+            --target-arch "$BUILD_ARCH" --name racer-team-toolkit \
+            --add-data ".env:." \
+            --add-binary "$RUNNER_TEMP/android/platform-tools/adb:." \
+            src/racer_team_toolkit/main.py
+          uv run pyinstaller --noconfirm --clean --onedir --windowed \
+            --target-arch "$BUILD_ARCH" --name racer-team-toolkit-gui \
+            --add-data ".env:." \
+            --add-binary "$RUNNER_TEMP/android/platform-tools/adb:." \
+            src/racer_team_toolkit/gui/main.py
+      - name: Verify and package builds
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          test -x dist/racer-team-toolkit
+          test -x dist/racer-team-toolkit-gui.app/Contents/MacOS/racer-team-toolkit-gui
+          lipo dist/racer-team-toolkit -verify_arch "$BUILD_ARCH"
+          lipo dist/racer-team-toolkit-gui.app/Contents/MacOS/racer-team-toolkit-gui -verify_arch "$BUILD_ARCH"
+          mkdir -p packages
+          tar -czf "packages/racer-team-toolkit-cli-macos-$BUILD_ARCH.tar.gz" -C dist racer-team-toolkit
+          ditto -c -k --sequesterRsrc --keepParent dist/racer-team-toolkit-gui.app "packages/racer-team-toolkit-gui-macos-$BUILD_ARCH.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: racer-team-toolkit-cli-macos-${{ matrix.arch }}
+          path: packages/*cli*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: racer-team-toolkit-gui-macos-${{ matrix.arch }}
+          path: packages/*gui*.zip
+          if-no-files-found: error

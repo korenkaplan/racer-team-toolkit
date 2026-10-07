@@ -87,10 +87,10 @@ def get_connected_android_devices() -> list[AndroidDevice]:
 def get_adb_executable() -> str:
     """Return the ADB executable path for development or packaged builds."""
 
-    # PyInstaller one-file build.
+    # PyInstaller bundle (one-file CLI or GUI app).
     if getattr(sys, "frozen", False):
         bundle_directory = Path(sys._MEIPASS)  # type: ignore[attr-defined]
-        bundled_adb = bundle_directory / "adb.exe"
+        bundled_adb = bundle_directory / ("adb.exe" if sys.platform == "win32" else "adb")
 
         if bundled_adb.exists():
             return str(bundled_adb)
