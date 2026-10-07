@@ -1,8 +1,9 @@
 """A live connection header inside the same application as the menu."""
 
 from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.layout import HSplit, Window
+from prompt_toolkit.layout import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.widgets import Box, Frame
 
@@ -44,17 +45,23 @@ def select_connected_menu(monitor: ConnectionMonitor, choices: list[str]) -> str
     header = Window(
         FormattedTextControl(lambda: connection_header(monitor.snapshot())),
         wrap_lines=True,
+        dont_extend_height=True,
     )
     panel = Frame(
-        Box(header, padding=1, padding_left=2, padding_right=2),
+        Box(header, padding=1),
         title="Racer Team Toolkit",
         style="fg:ansicyan",
-        width=lambda: max(
-            28,
-            get_cwidth("".join(text for _, text in connection_header(monitor.snapshot()))) + 6,
+        width=lambda: Dimension.exact(
+            max(
+                28,
+                get_cwidth("".join(text for _, text in connection_header(monitor.snapshot()))) + 6,
+            )
         ),
     )
-    application.layout.container = HSplit([panel, application.layout.container])
+    compact_panel = VSplit([panel], align="LEFT")
+    application.layout.container = HSplit(
+        [compact_panel, application.layout.container], align="TOP"
+    )
     monitor.set_notify(application.invalidate)
     monitor.set_menu_active(True)
     try:
