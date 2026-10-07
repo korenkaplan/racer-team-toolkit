@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/combined-reff-extraction
+      - feature/macos-cli-gui-builds
   workflow_dispatch:
 
 jobs:
@@ -54,19 +55,7 @@ jobs:
 
       - name: Create production environment
         shell: pwsh
-        env:
-          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:SSH_PASSWORD)) {
-              throw "SSH_PASSWORD GitHub secret is missing"
-          }
-
-          @"
-          RACER_TOOLKIT_STATUS=production
-          SSH_PASSWORD=$env:SSH_PASSWORD
-          "@ | Set-Content .env
-
-          Write-Host "Production environment file created."
+        run: '"RACER_TOOLKIT_STATUS=production" | Set-Content .env'
 
       - name: Build CLI executable
         shell: pwsh
@@ -130,5 +119,3 @@ jobs:
 
   build-macos:
     uses: ./.github/workflows/build-macos.yml
-    secrets:
-      SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}

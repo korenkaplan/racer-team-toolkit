@@ -2,9 +2,6 @@ name: Build macOS CLI and GUI
 
 on:
   workflow_call:
-    secrets:
-      SSH_PASSWORD:
-        required: true
 
 jobs:
   build-macos:
@@ -36,11 +33,7 @@ jobs:
           chmod +x "$RUNNER_TEMP/android/platform-tools/adb"
           "$RUNNER_TEMP/android/platform-tools/adb" version
       - name: Create production environment
-        env:
-          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
-        run: |
-          test -n "$SSH_PASSWORD" || { echo "SSH_PASSWORD GitHub secret is missing"; exit 1; }
-          printf 'RACER_TOOLKIT_STATUS=production\nSSH_PASSWORD=%s\n' "$SSH_PASSWORD" > .env
+        run: printf 'RACER_TOOLKIT_STATUS=production\n' > .env
       - name: Build CLI and GUI
         env:
           BUILD_ARCH: ${{ matrix.arch }}

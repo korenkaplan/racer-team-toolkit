@@ -53,17 +53,7 @@ jobs:
 
       - name: Create production environment
         shell: pwsh
-        env:
-          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:SSH_PASSWORD)) {
-              throw "SSH_PASSWORD GitHub secret is missing"
-          }
-
-          @"
-          RACER_TOOLKIT_STATUS=production
-          SSH_PASSWORD=$env:SSH_PASSWORD
-          "@ | Set-Content .env
+        run: '"RACER_TOOLKIT_STATUS=production" | Set-Content .env'
 
       - name: Build CLI executable
         shell: pwsh
@@ -118,8 +108,6 @@ jobs:
 
   build-macos:
     uses: ./.github/workflows/build-macos.yml
-    secrets:
-      SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
 
   publish-release:
     needs: [build-release, build-macos]
